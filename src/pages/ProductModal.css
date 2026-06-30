@@ -1,0 +1,196 @@
+/* ─── ProductModal.css ───────────────────────────────────────────── */
+
+/*
+  Uses the dashboard's own CSS custom properties so buttons always
+  match the active theme:
+    --color-primary-500  (main brand colour)
+    --color-primary-400  (lighter tint)
+    --color-primary-600  (darker shade)
+    --color-primary-50   (very light tint for hover backgrounds)
+    --color-surface-100  (subtle border / background)
+
+  If your project exposes these through Tailwind's @layer base or a
+  :root block they'll resolve automatically. Fallbacks are provided
+  for standalone development.
+*/
+
+/* ── Modal overlay: no scroll, centred ─────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  padding: 1rem;
+}
+
+/* ── Modal box: fixed max-height so it never overflows viewport ── */
+.modal-box {
+  background: #fff;
+  border-radius: 1rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+  width: 100%;
+  max-width: 42rem;         /* 2xl */
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;         /* children handle their own scroll if needed */
+}
+
+/* Header – never shrinks */
+.modal-box > .modal-header {
+  flex-shrink: 0;
+}
+
+/* Form area – compact, no overflow */
+.modal-form {
+  flex: 1;
+  overflow: hidden;         /* no scroll at all */
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+/* Tighter grid gap inside form */
+.modal-form .modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+@media (max-width: 640px) {
+  .modal-form .modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Full-width inside grid */
+.modal-full {
+  grid-column: 1 / -1;
+}
+
+/* Compact form inputs */
+.modal-form .form-input,
+.modal-form .form-select,
+.modal-form .form-textarea {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+  font-size: 0.8125rem;
+}
+.modal-form .form-label {
+  font-size: 0.75rem;
+  margin-bottom: 0.2rem;
+}
+.modal-form .form-group {
+  margin: 0;
+}
+
+/* Compact image uploader */
+.modal-upload-empty {
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.modal-upload-empty svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  color: var(--color-primary-300, #93c5fd);
+}
+.modal-upload-empty p {
+  font-size: 0.8rem;
+  color: var(--color-primary-500, #3b82f6);
+  font-weight: 500;
+  margin: 0;
+}
+.modal-upload-empty span {
+  font-size: 0.7rem;
+  color: var(--color-primary-300, #93c5fd);
+}
+
+/* Footer – never shrinks */
+.modal-footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--color-surface-100, #f3f4f6);
+}
+
+/* ── Close button – shape & transition only; colour via Tailwind classes ── */
+.modal-btn-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+/* ── Cancel button – shape & transition only; colour via Tailwind classes ── */
+.modal-btn-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border-radius: 0.625rem;
+  border-width: 1.5px;
+  border-style: solid;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+/* ── Save / Update – shape & transition only; colour via Tailwind classes ── */
+.modal-btn-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: box-shadow 0.2s, transform 0.15s, background 0.15s;
+}
+.modal-btn-save:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  transform: translateY(-1px);
+}
+.modal-btn-save:active {
+  transform: translateY(0);
+}
+.modal-btn-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Required asterisk ──────────────────────────────────────────── */
+.form-label-required::after {
+  content: ' *';
+  color: #ef4444;
+  font-weight: 700;
+}
+
+/* ── Sub-category slide-in ──────────────────────────────────────── */
+.subcategory-enter {
+  animation: subcatSlideIn 0.2s ease forwards;
+}
+@keyframes subcatSlideIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
