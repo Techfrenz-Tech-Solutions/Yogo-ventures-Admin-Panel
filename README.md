@@ -226,6 +226,56 @@ This creates an optimized production build in the `dist/` folder with:
 - Code splitting
 - Asset optimization
 
+## 🐳 Docker Deployment
+
+The admin panel is containerised and deployed as a production nginx container. A multi-stage Dockerfile builds the Vite bundle and copies the static output into a minimal `nginx:alpine` image.
+
+### Files added
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | Multi-stage build: `node:20-alpine` (build) → `nginx:alpine` (serve) |
+| `nginx.conf` | SPA routing (`try_files $uri /index.html`), gzip compression, long-term asset caching |
+| `.dockerignore` | Excludes `node_modules`, `dist`, `.git` from build context |
+
+### Build-time environment variables
+
+These are baked into the JS bundle at `docker build` time via `--build-arg`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_API_URL` | `http://localhost:5000/api` | Backend REST API base URL |
+| `VITE_SOCKET_URL` | `http://localhost:5000` | Socket.IO server URL |
+| `VITE_DEMO_MODE` | `true` | When `true`, app falls back to mock data if backend is unreachable |
+
+### Build and run
+
+```bash
+# Build image (with real backend URLs)
+docker build \
+  --build-arg VITE_API_URL=https://api.yourdomain.com/api \
+  --build-arg VITE_SOCKET_URL=https://api.yourdomain.com \
+  --build-arg VITE_DEMO_MODE=false \
+  -t yogo-admin-panel .
+
+# Run container
+docker run -d \
+  --name yogo-admin-panel \
+  --restart unless-stopped \
+  -p 28095:80 \
+  yogo-admin-panel
+```
+
+### Live deployment
+
+| Environment | URL |
+|-------------|-----|
+| Production VM | `http://106.51.20.225:28095` |
+
+The container listens on port 80 internally and is exposed on host port **28095**.
+
+---
+
 ## 🤝 Contributing
 
 1. Create a new branch for your feature
@@ -238,6 +288,13 @@ This creates an optimized production build in the `dist/` folder with:
 This project is private and proprietary.
 
 ## 🔧 Recent Changes
+
+### Docker containerisation (2025-07-01)
+- Added `Dockerfile` — multi-stage production build using `node:20-alpine` and `nginx:alpine`
+- Added `nginx.conf` — SPA-friendly routing, gzip, and immutable asset caching headers
+- Added `.dockerignore` — keeps build context lean
+- Deployed to VM at `http://106.51.20.225:28095` on port 28095
+- App runs in `VITE_DEMO_MODE=true` by default; pass real backend URLs as build args when connecting a live backend
 
 ### Removed Dark Mode
 - All dark mode functionality has been removed
