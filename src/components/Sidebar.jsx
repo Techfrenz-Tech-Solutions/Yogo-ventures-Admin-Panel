@@ -98,11 +98,16 @@ const SidebarInner = ({ collapsed, onCollapse, admin, onLogout, onClose }) => (
           title={collapsed ? label : undefined}
           onClick={onClose}
           className={({ isActive }) =>
-            `sidebar-item ${isActive ? 'active' : ''} ${collapsed ? 'justify-center !px-0' : ''}`
+            `group relative sidebar-item ${isActive ? 'active' : ''} ${collapsed ? 'justify-center !px-0' : ''}`
           }
         >
           <Icon path={ICONS[icon]} className="w-5 h-5 flex-shrink-0" />
           {!collapsed && <span className="truncate">{label}</span>}
+          {collapsed && (
+            <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded shadow-lg whitespace-nowrap z-50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+              {label}
+            </div>
+          )}
         </NavLink>
       ))}
     </nav>
@@ -112,10 +117,15 @@ const SidebarInner = ({ collapsed, onCollapse, admin, onLogout, onClose }) => (
       <button
         onClick={onLogout}
         title={collapsed ? 'Logout' : undefined}
-        className={`sidebar-item w-full text-left !text-red-300 hover:!text-red-200 hover:!bg-red-500/20 ${collapsed ? 'justify-center !px-0' : ''}`}
+        className={`group relative sidebar-item w-full text-left !text-red-300 hover:!text-red-200 hover:!bg-red-500/20 ${collapsed ? 'justify-center !px-0' : ''}`}
       >
         <Icon path={ICONS.logout} className="w-5 h-5 flex-shrink-0" />
         {!collapsed && <span>Logout</span>}
+        {collapsed && (
+          <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded shadow-lg whitespace-nowrap z-50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            Logout
+          </div>
+        )}
       </button>
     </div>
   </div>

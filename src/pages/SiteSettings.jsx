@@ -1,7 +1,7 @@
 /**
  * pages/SiteSettings.jsx — Site Configuration
  * ─────────────────────────────────────────────
- * Tabs: General · Currency & Tax · Theme · Social Media · Invoice
+ * Tabs: General · Social Media · Invoice
  */
 
 import { useState, useEffect } from 'react';
@@ -9,7 +9,7 @@ import { settingsAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 
-const TABS = ['General', 'Currency & Tax', 'Theme', 'Social Media', 'Invoice'];
+const TABS = ['General', 'Social Media', 'Invoice'];
 
 const SiteSettings = () => {
   const [activeTab, setActiveTab] = useState('General');
@@ -109,102 +109,6 @@ const SiteSettings = () => {
                 <textarea className="form-textarea" value={settings?.maintenanceMessage || ''} onChange={(e) => update('maintenanceMessage', e.target.value)} placeholder="We'll be back soon..." rows={3} />
               </div>
             )}
-          </div>
-        )}
-
-        {/* ─── Currency & Tax ─────────────────── */}
-        {activeTab === 'Currency & Tax' && (
-          <div className="space-y-4">
-            <h3 className="font-heading text-lg font-semibold text-primary-600 pb-2 border-b border-surface-100">Currency & Tax</h3>
-            <div className="form-group">
-              <label className="form-label">Default Currency</label>
-              <select className="form-select" value={settings?.defaultCurrency || 'INR'} onChange={(e) => update('defaultCurrency', e.target.value)}>
-                <option value="INR">INR — Indian Rupee (₹)</option>
-                <option value="USD">USD — US Dollar ($)</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Tax Label</label>
-              <input className="form-input" value={settings?.taxLabel || ''} onChange={(e) => update('taxLabel', e.target.value)} placeholder="GST" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Tax Rate (%)</label>
-              <input type="number" className="form-input" value={(settings?.taxRate || 0) * 100} min={0} max={100} step={0.5}
-                onChange={(e) => update('taxRate', parseFloat(e.target.value) / 100)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Price Includes Tax?</label>
-              <div className="flex gap-4">
-                {[true, false].map((v) => (
-                  <label key={String(v)} className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" checked={settings?.taxIncluded === v} onChange={() => update('taxIncluded', v)} className="accent-primary-500" />
-                    <span className="text-sm text-primary-600">{v ? 'Yes (inclusive)' : 'No (exclusive)'}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="form-group">
-                <label className="form-label">Free Shipping Above (₹)</label>
-                <input type="number" className="form-input" value={settings?.freeShippingThreshold || 0} onChange={(e) => update('freeShippingThreshold', parseFloat(e.target.value))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Default Shipping Cost (₹)</label>
-                <input type="number" className="form-input" value={settings?.defaultShippingCost || 0} onChange={(e) => update('defaultShippingCost', parseFloat(e.target.value))} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ─── Theme ──────────────────────────── */}
-        {activeTab === 'Theme' && (
-          <div className="space-y-4">
-            <h3 className="font-heading text-lg font-semibold text-primary-600 pb-2 border-b border-surface-100">Theme & Appearance</h3>
-            <div className="form-group">
-              <label className="form-label">Default Theme</label>
-              <div className="flex gap-3">
-                {['light', 'dark'].map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => update('defaultTheme', t)}
-                    className={clsx(
-                      'flex-1 py-3 rounded-xl border-2 text-sm font-medium transition-all',
-                      settings?.defaultTheme === t ? 'border-primary-400 bg-primary-50 text-primary-600' : 'border-surface-200 text-primary-400 hover:border-primary-200'
-                    )}
-                  >
-                    {t === 'light' ? '☀️ Light Mode' : '🌙 Dark Mode'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="form-group">
-                <label className="form-label">Primary Color</label>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={settings?.primaryColor || '#335765'} onChange={(e) => update('primaryColor', e.target.value)} className="w-10 h-10 rounded-lg cursor-pointer border border-surface-200" />
-                  <input className="form-input font-mono text-sm" value={settings?.primaryColor || ''} onChange={(e) => update('primaryColor', e.target.value)} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Accent Color</label>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={settings?.accentColor || '#74A8A4'} onChange={(e) => update('accentColor', e.target.value)} className="w-10 h-10 rounded-lg cursor-pointer border border-surface-200" />
-                  <input className="form-input font-mono text-sm" value={settings?.accentColor || ''} onChange={(e) => update('accentColor', e.target.value)} />
-                </div>
-              </div>
-            </div>
-            {/* Palette Preview */}
-            <div>
-              <label className="form-label">Coastal Retreat Palette</label>
-              <div className="flex gap-2">
-                {['#335765','#74A8A4','#B6D9E0','#DBE2DC','#7F543D'].map((c) => (
-                  <div key={c} className="flex-1 text-center">
-                    <div className="h-12 rounded-xl border border-surface-200 cursor-pointer hover:scale-105 transition-transform" style={{ background: c }} onClick={() => update('primaryColor', c)} />
-                    <p className="text-[9px] text-primary-400 mt-1 font-mono">{c}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         )}
 
