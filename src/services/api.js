@@ -14,24 +14,16 @@ import {
   mockParentCategoryAPI, mockCountryAPI,
 } from './mockApi';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.0.29:7002';
 const FORCE_DEMO = import.meta.env.VITE_DEMO_MODE === 'true';
 
 let _isDemoMode = FORCE_DEMO;
 
 export const isDemoMode = () => _isDemoMode;
 
-// ─── Gate: resolves once backend status is known ──
-// proxy() awaits this before deciding real vs mock.
-const _backendReady = FORCE_DEMO
-  ? Promise.resolve()           // demo forced — resolve immediately
-  : axios
-      .get(BASE_URL.replace('/api', '/api/health'), { timeout: 3000 })
-      .then(() => { _isDemoMode = false; })
-      .catch(() => {
-        _isDemoMode = true;
-        console.info('[API] Backend unreachable — Demo Mode active. Use admin@demo.com / Admin@123');
-      });
+// Health check disabled — always use live backend
+const _backendReady = Promise.resolve();
+_isDemoMode = false;
 
 export const getAccessToken = () => localStorage.getItem('accessToken');
 export const getRefreshToken = () => localStorage.getItem('refreshToken');

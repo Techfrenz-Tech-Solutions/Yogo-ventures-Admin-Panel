@@ -51,14 +51,15 @@ export default defineConfig({
 
   server: {
     host: '0.0.0.0',
-    port: 5173,
-    strictPort: false,
+    port: 5174,
+    strictPort: true,
 
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://192.168.0.29:7002', // actual backend
         changeOrigin: true,
         secure: false,
+        rewrite: (path) => path.replace(/^\/api/, ''), // strips /api prefix before forwarding
       },
     },
 
