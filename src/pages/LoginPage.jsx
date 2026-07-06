@@ -57,9 +57,9 @@ const LoginPage = () => {
 
       {/* Credentials hint */}
       <div className="mb-5 bg-accent-100 border border-accent-300 rounded-xl px-4 py-3 text-sm text-primary-600">
-        <strong>Demo Credentials</strong> — Email:&nbsp;
-        <code className="bg-white/60 px-1 rounded">admin@demo.com</code>&nbsp;/ Password:&nbsp;
-        <code className="bg-white/60 px-1 rounded">Admin@123</code>
+        <strong>Credentials</strong> — Email:&nbsp;
+        <code className="bg-white/60 px-1 rounded">admin@yogoventures.com</code>&nbsp;/ Password:&nbsp;
+        <code className="bg-white/60 px-1 rounded">Yogo@123</code>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5" noValidate>

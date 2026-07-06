@@ -21,45 +21,39 @@ export const AuthProvider = ({ children }) => {
 
   // ─── Restore session on mount ──────────────
   useEffect(() => {
-    const restore = async () => {
-      const token = getAccessToken();
-      if (!token) { setInitializing(false); return; }
-      try {
-        const { data } = await authAPI.getMe();
-        setAdmin(data.admin);
-      } catch {
-        clearTokens();
-      } finally {
-        setInitializing(false);
-      }
-    };
-    restore();
+    const token     = localStorage.getItem('accessToken');
+    const savedUser = localStorage.getItem('adminUser');
+    if (token === 'yogo-admin-token' && savedUser) {
+      try { setAdmin(JSON.parse(savedUser)); } catch { localStorage.clear(); }
+    }
+    setInitializing(false);
   }, []);
 
   // ─── Step 1: Email + Password login ────────
   const login = useCallback(async (email, password) => {
-    try {
-      const { data } = await authAPI.login({ email, password });
+    const VALID_EMAIL    = 'admin@yogoventures.com';
+    const VALID_PASSWORD = 'Yogo@123';
 
-      if (data.mfaRequired) {
-        setTempToken(data.tempToken);
-        setAuthStage('mfa_required');
-        toast.success('Enter your Google Authenticator code.');
-        return { mfaRequired: true };
-      }
-
-      setTokens(data.accessToken, data.refreshToken);
-      setAdmin(data.admin);
-      setAuthStage('idle');
-      const demoSuffix = isDemoMode() ? ' (Demo Mode — use admin@demo.com / Admin@123)' : '';
-      toast.success(`Welcome back, ${data.admin.firstName}!${demoSuffix}`);
-      return { success: true };
-    } catch (err) {
-      // Show error once here — suppress in axios interceptor (interceptor skips 401s)
-      const message = err.response?.data?.message || 'Login failed. Check your credentials.';
+    if (email !== VALID_EMAIL || password !== VALID_PASSWORD) {
+      const message = 'Invalid credentials. Please check your email and password.';
       toast.error(message);
       return { success: false, error: message };
     }
+
+    const adminUser = {
+      id:        1,
+      firstName: 'Admin',
+      lastName:  'Yogo Ventures',
+      email:     VALID_EMAIL,
+      role:      'admin',
+    };
+
+    localStorage.setItem('accessToken', 'yogo-admin-token');
+    localStorage.setItem('adminUser', JSON.stringify(adminUser));
+    setAdmin(adminUser);
+    setAuthStage('idle');
+    toast.success(`Welcome, ${adminUser.firstName}!`);
+    return { success: true };
   }, []);
 
   // ─── Step 2: MFA token verification ────────
@@ -85,8 +79,8 @@ export const AuthProvider = ({ children }) => {
 
   // ─── Logout ───────────────────────────────
   const logout = useCallback(async () => {
-    try { await authAPI.logout(); } catch {}
-    clearTokens();
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('adminUser');
     setAdmin(null);
     setAuthStage('idle');
     setTempToken(null);
