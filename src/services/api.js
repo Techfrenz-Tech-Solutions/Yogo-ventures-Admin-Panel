@@ -14,7 +14,7 @@ import {
   mockParentCategoryAPI, mockCountryAPI,
 } from './mockApi';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.0.29:7002';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.0.20:7002';
 const FORCE_DEMO = import.meta.env.VITE_DEMO_MODE === 'true';
 
 let _isDemoMode = FORCE_DEMO;

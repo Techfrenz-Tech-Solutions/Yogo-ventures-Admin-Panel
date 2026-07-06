@@ -56,7 +56,7 @@ export default defineConfig({
 
     proxy: {
       '/api': {
-        target: 'http://192.168.0.29:7002', // actual backend
+        target: 'http://192.168.0.20:7002', // actual backend
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, ''), // strips /api prefix before forwarding
