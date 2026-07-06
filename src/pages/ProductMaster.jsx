@@ -1,11 +1,14 @@
 /**
  * pages/ProductMaster.jsx — Product Master
- * Add / Edit / View / Delete products with:
- *   - Product Code, Name, Category (dropdown), Sub Category (filtered dropdown)
- *   - Product Description (textarea)
- *   - Index Image (1 upload slot)
- *   - Variation Images (5 individual upload slots)
- * Stats cards above grid. Fully responsive.
+ * Connected to live API endpoints via Api.js (axios instance).
+ *
+ * POST /product/productcreate  → create (multipart: index_image, image1-5)
+ * GET  /product/productlist    → list
+ * POST /product/productupdate  → update (multipart)
+ * POST /product/productdelete  → delete
+ *
+ * Images are uploaded to the backend's /storage filesystem; only the
+ * filename is stored in the DB, so the UI builds the full URL via storageUrl().
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -13,18 +16,8 @@ import toast from 'react-hot-toast';
 import { addActivity } from '../components/Header';
 import { ConfirmationModal } from '../components/ui';
 import { format } from 'date-fns';
-
-// ─── Helpers ──────────────────────────────────
-const newId   = () => Math.random().toString(36).slice(2, 10).toUpperCase();
-const nowISO  = () => new Date().toISOString();
-
-// ─── Storage keys ─────────────────────────────
-const KEY_PRODUCTS  = 'yogo_products';
-const KEY_CATS      = 'yogo_categories';
-const KEY_SUBCATS   = 'yogo_subcategories';
-
-const readLS  = (key) => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; } };
-const writeLS = (key, data) => localStorage.setItem(key, JSON.stringify(data));
+import Api from '../utils/Api';
+import { storageUrl } from '../utils/imageUrl';
 
 // ─── Tiny SVG icon ────────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -34,16 +27,17 @@ const Ic = ({ d, className = 'w-4 h-4' }) => (
 );
 
 const D = {
-  add:    'M12 4v16m8-8H4',
-  edit:   'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
-  trash:  'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
-  eye:    'M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
-  close:  'M6 18L18 6M6 6l12 12',
-  upload: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12',
-  img:    'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z',
-  box:    'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
-  search: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0',
-  x:      'M6 18L18 6M6 6l12 12',
+  add:     'M12 4v16m8-8H4',
+  edit:    'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+  trash:   'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
+  eye:     'M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
+  close:   'M6 18L18 6M6 6l12 12',
+  upload:  'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12',
+  img:     'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z',
+  box:     'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+  search:  'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0',
+  x:       'M6 18L18 6M6 6l12 12',
+  refresh: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
 };
 
 // ─── Stat Card ────────────────────────────────
@@ -68,18 +62,19 @@ const StatCard = ({ label, value, iconPath, color }) => {
   );
 };
 
-// ─── Single image upload slot ─────────────────
+// ─── Single image upload slot ──────────────────
+// `value` is either { file: File, preview: objectURL } for a newly picked
+// image, or a plain string filename (from the backend) for an existing one.
 const ImageSlot = ({ label, value, onChange, onClear }) => {
   const ref = useRef(null);
+  const preview = value && typeof value === 'object' ? value.preview : storageUrl(value);
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { toast.error('Please select an image file.'); return; }
     if (file.size > 5 * 1024 * 1024)    { toast.error('Image must be under 5 MB.');    return; }
-    const reader = new FileReader();
-    reader.onload = (ev) => onChange(ev.target.result);
-    reader.readAsDataURL(file);
+    onChange({ file, preview: URL.createObjectURL(file) });
     e.target.value = '';
   };
 
@@ -88,13 +83,13 @@ const ImageSlot = ({ label, value, onChange, onClear }) => {
       {label && <p className="text-xs font-medium text-primary-500">{label}</p>}
       <div
         className={`relative rounded-xl border-2 border-dashed transition-colors overflow-hidden
-          ${value ? 'border-primary-200 bg-primary-50/30' : 'border-surface-300 bg-surface-50 hover:border-primary-300 hover:bg-primary-50/20 cursor-pointer'}`}
+          ${preview ? 'border-primary-200 bg-primary-50/30' : 'border-surface-300 bg-surface-50 hover:border-primary-300 hover:bg-primary-50/20 cursor-pointer'}`}
         style={{ aspectRatio: '1 / 1', minHeight: 80 }}
-        onClick={() => !value && ref.current?.click()}
+        onClick={() => !preview && ref.current?.click()}
       >
-        {value ? (
+        {preview ? (
           <>
-            <img src={value} alt={label} className="w-full h-full object-cover" />
+            <img src={preview} alt={label} className="w-full h-full object-cover" />
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onClear(); }}
@@ -112,7 +107,7 @@ const ImageSlot = ({ label, value, onChange, onClear }) => {
         )}
       </div>
       <input ref={ref} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-      {!value && (
+      {!preview && (
         <button
           type="button"
           onClick={() => ref.current?.click()}
@@ -130,8 +125,8 @@ const ImageSlot = ({ label, value, onChange, onClear }) => {
 const EMPTY_FORM = {
   code:          '',
   name:          '',
-  categoryId:    '',
-  subCategoryId: '',
+  categoryName:    '',
+  subCategoryName: '',
   description:   '',
   indexImage:    '',
   varImages:     ['', '', '', '', ''],
@@ -143,15 +138,19 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
   const [form, setForm] = useState(() =>
     product
       ? {
-          code:          product.code          || '',
-          name:          product.name          || '',
-          categoryId:    product.categoryId    || '',
-          subCategoryId: product.subCategoryId || '',
-          description:   product.description   || '',
-          indexImage:    product.indexImage    || '',
-          varImages:     product.varImages?.length === 5
-            ? [...product.varImages]
-            : ['', '', '', '', ''],
+          code:            product.product_code        || '',
+          name:            product.product_name        || '',
+          categoryName:    product.category_name        || '',
+          subCategoryName: product.sub_category_name    || '',
+          description:     product.product_description  || '',
+          indexImage:      product.index_image          || '',
+          varImages: [
+            product.image1 || '',
+            product.image2 || '',
+            product.image3 || '',
+            product.image4 || '',
+            product.image5 || '',
+          ],
         }
       : { ...EMPTY_FORM, varImages: ['', '', '', '', ''] }
   );
@@ -167,33 +166,31 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
 
   // filtered sub-categories based on chosen category
   const filteredSubs = useMemo(() =>
-    form.categoryId
-      ? subCategories.filter(s => s.categoryId === form.categoryId)
+    form.categoryName
+      ? subCategories.filter(s => s.category_name === form.categoryName)
       : subCategories,
-  [form.categoryId, subCategories]);
+  [form.categoryName, subCategories]);
 
   // reset sub-cat when category changes
-  const handleCategoryChange = (catId) => {
-    set('categoryId', catId);
-    set('subCategoryId', '');
+  const handleCategoryChange = (catName) => {
+    set('categoryName', catName);
+    set('subCategoryName', '');
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.code.trim())       { toast.error('Product code is required.');    return; }
-    if (!form.name.trim())       { toast.error('Product name is required.');    return; }
-    if (!form.categoryId)        { toast.error('Please select a category.');    return; }
-    if (!form.subCategoryId)     { toast.error('Please select a sub category.'); return; }
+    if (!form.code.trim())          { toast.error('Product code is required.');     return; }
+    if (!form.name.trim())          { toast.error('Product name is required.');     return; }
+    if (!form.categoryName)         { toast.error('Please select a category.');     return; }
+    if (!form.subCategoryName)      { toast.error('Please select a sub category.'); return; }
     setSaving(true);
-    setTimeout(() => {
-      onSave({
-        ...form,
-        code: form.code.trim().toUpperCase(),
-        name: form.name.trim(),
-        description: form.description.trim(),
-      });
-      setSaving(false);
-    }, 350);
+    await onSave({
+      ...form,
+      code: form.code.trim().toUpperCase(),
+      name: form.name.trim(),
+      description: form.description.trim(),
+    });
+    setSaving(false);
   };
 
   return (
@@ -244,13 +241,13 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
                 <label className="form-label">Category <span className="text-danger-500">*</span></label>
                 <select
                   className="form-select"
-                  value={form.categoryId}
+                  value={form.categoryName}
                   onChange={e => handleCategoryChange(e.target.value)}
                   required
                 >
                   <option value="">— Select Category —</option>
                   {categories.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                    <option key={c.category_name} value={c.category_name}>{c.category_name}</option>
                   ))}
                 </select>
                 {categories.length === 0 && (
@@ -261,17 +258,17 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
                 <label className="form-label">Sub Category <span className="text-danger-500">*</span></label>
                 <select
                   className="form-select"
-                  value={form.subCategoryId}
-                  onChange={e => set('subCategoryId', e.target.value)}
+                  value={form.subCategoryName}
+                  onChange={e => set('subCategoryName', e.target.value)}
                   required
-                  disabled={!form.categoryId}
+                  disabled={!form.categoryName}
                 >
                   <option value="">— Select Sub Category —</option>
                   {filteredSubs.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                    <option key={s.sub_category_name} value={s.sub_category_name}>{s.sub_category_name}</option>
                   ))}
                 </select>
-                {form.categoryId && filteredSubs.length === 0 && (
+                {form.categoryName && filteredSubs.length === 0 && (
                   <p className="text-[11px] text-danger-500 mt-1">No sub categories for this category.</p>
                 )}
               </div>
@@ -336,123 +333,196 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
 };
 
 // ─── View Modal ───────────────────────────────
-const ViewModal = ({ product, categoryName, subCategoryName, onClose }) => (
-  <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-    <div className="modal-box w-full !max-w-lg">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
-        <h3 className="font-heading text-base font-semibold text-primary-600">Product Details</h3>
-        <button onClick={onClose} className="btn-icon text-primary-400 hover:text-primary-600">
-          <Ic d={D.close} />
-        </button>
-      </div>
-      <div className="p-6 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 120px)' }}>
-        {/* Info rows */}
-        {[
-          { label: 'Product Code',    value: product.code },
-          { label: 'Product Name',    value: product.name },
-          { label: 'Category',        value: categoryName || '—' },
-          { label: 'Sub Category',    value: subCategoryName || '—' },
-          { label: 'Description',     value: product.description || '—' },
-          { label: 'Created Date',    value: format(new Date(product.createdAt), 'dd MMM yyyy, hh:mm a') },
-          { label: 'Updated Date',    value: format(new Date(product.updatedAt), 'dd MMM yyyy, hh:mm a') },
-        ].map(({ label, value }) => (
-          <div key={label} className="flex flex-col gap-0.5">
-            <span className="text-[11px] font-medium text-primary-400 uppercase tracking-wide">{label}</span>
-            <span className="text-sm font-medium text-primary-700 whitespace-pre-line">{value}</span>
-          </div>
-        ))}
-
-        {/* Index image */}
-        {product.indexImage && (
-          <div>
-            <span className="text-[11px] font-medium text-primary-400 uppercase tracking-wide block mb-2">Index Image</span>
-            <img
-              src={product.indexImage}
-              alt="index"
-              className="w-32 h-32 object-cover rounded-xl border border-surface-200 shadow-sm"
-            />
-          </div>
-        )}
-
-        {/* Variation images */}
-        {product.varImages?.some(v => v) && (
-          <div>
-            <span className="text-[11px] font-medium text-primary-400 uppercase tracking-wide block mb-2">Variation Images</span>
-            <div className="flex flex-wrap gap-2">
-              {product.varImages.map((img, i) =>
-                img
-                  ? <img key={i} src={img} alt={`var-${i + 1}`}
-                      className="w-16 h-16 object-cover rounded-lg border border-surface-200 shadow-sm" />
-                  : null
-              )}
+const ViewModal = ({ product, onClose }) => {
+  const varImages = [product.image1, product.image2, product.image3, product.image4, product.image5].filter(Boolean);
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box w-full !max-w-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+          <h3 className="font-heading text-base font-semibold text-primary-600">Product Details</h3>
+          <button onClick={onClose} className="btn-icon text-primary-400 hover:text-primary-600">
+            <Ic d={D.close} />
+          </button>
+        </div>
+        <div className="p-6 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 120px)' }}>
+          {/* Info rows */}
+          {[
+            { label: 'Product Code',    value: product.product_code },
+            { label: 'Product Name',    value: product.product_name },
+            { label: 'Category',        value: product.category_name || '—' },
+            { label: 'Sub Category',    value: product.sub_category_name || '—' },
+            { label: 'Description',     value: product.product_description || '—' },
+            { label: 'Created Date',    value: product.created_date ? format(new Date(product.created_date), 'dd MMM yyyy, hh:mm a') : '—' },
+            { label: 'Updated Date',    value: product.updated_date ? format(new Date(product.updated_date), 'dd MMM yyyy, hh:mm a') : '—' },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-medium text-primary-400 uppercase tracking-wide">{label}</span>
+              <span className="text-sm font-medium text-primary-700 whitespace-pre-line">{value}</span>
             </div>
-          </div>
-        )}
-      </div>
-      <div className="px-6 pb-5 flex justify-end">
-        <button onClick={onClose} className="btn-outline">Close</button>
+          ))}
+
+          {/* Index image */}
+          {product.index_image && (
+            <div>
+              <span className="text-[11px] font-medium text-primary-400 uppercase tracking-wide block mb-2">Index Image</span>
+              <img
+                src={storageUrl(product.index_image)}
+                alt="index"
+                className="w-32 h-32 object-cover rounded-xl border border-surface-200 shadow-sm"
+              />
+            </div>
+          )}
+
+          {/* Variation images */}
+          {varImages.length > 0 && (
+            <div>
+              <span className="text-[11px] font-medium text-primary-400 uppercase tracking-wide block mb-2">Variation Images</span>
+              <div className="flex flex-wrap gap-2">
+                {varImages.map((img, i) => (
+                  <img key={i} src={storageUrl(img)} alt={`var-${i + 1}`}
+                    className="w-16 h-16 object-cover rounded-lg border border-surface-200 shadow-sm" />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="px-6 pb-5 flex justify-end">
+          <button onClick={onClose} className="btn-outline">Close</button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ─── Main Page ────────────────────────────────
 const ProductMaster = () => {
   const [products,      setProducts]      = useState([]);
   const [categories,    setCategories]    = useState([]);
   const [subCategories, setSubCategories] = useState([]);
+  const [loading,       setLoading]       = useState(false);
   const [search,        setSearch]        = useState('');
   const [modal,         setModal]         = useState(null); // null | 'add' | product-obj
   const [viewItem,      setViewItem]      = useState(null);
   const [confirm,       setConfirm]       = useState(null);
 
-  // Load all data from localStorage on mount
-  useEffect(() => {
-    setCategories(readLS(KEY_CATS));
-    setSubCategories(readLS(KEY_SUBCATS));
-    setProducts(readLS(KEY_PRODUCTS));
-  }, []);
-
-  const persist = useCallback((data) => {
-    setProducts(data);
-    writeLS(KEY_PRODUCTS, data);
-  }, []);
-
-  const getCatName  = (id) => categories.find(c => c.id === id)?.name    || '—';
-  const getSubName  = (id) => subCategories.find(s => s.id === id)?.name || '—';
-
-  const handleSave = (form) => {
-    if (modal === 'add') {
-      const entry = { id: newId(), ...form, createdAt: nowISO(), updatedAt: nowISO() };
-      persist([...products, entry]);
-      toast.success('Product added successfully.');
-      addActivity(`New product added: ${form.name}`, 'product');
-    } else {
-      persist(products.map(p => p.id === modal.id ? { ...p, ...form, updatedAt: nowISO() } : p));
-      toast.success('Product updated.');
-      addActivity(`Product updated: ${form.name}`, 'product');
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await Api.get('/category/categorydropdown');
+      setCategories(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to load categories.');
     }
-    setModal(null);
+  }, []);
+
+  const fetchSubCategories = useCallback(async () => {
+    try {
+      const res = await Api.get('/subcategory/sub-categorylist');
+      setSubCategories(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to load sub categories.');
+    }
+  }, []);
+
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await Api.get('/product/productlist');
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      setProducts(list);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to load products.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCategories();
+    fetchSubCategories();
+    fetchProducts();
+  }, [fetchCategories, fetchSubCategories, fetchProducts]);
+
+  // Build the multipart form body shared by create/update
+  const buildFormData = (form) => {
+    const fd = new FormData();
+    fd.append('product_code', form.code);
+    fd.append('product_name', form.name);
+    fd.append('category_name', form.categoryName);
+    fd.append('sub_category_name', form.subCategoryName);
+    fd.append('product_description', form.description);
+
+    if (form.indexImage && typeof form.indexImage === 'object') {
+      fd.append('index_image', form.indexImage.file);
+    }
+    const varFields = ['image1', 'image2', 'image3', 'image4', 'image5'];
+    form.varImages.forEach((img, i) => {
+      if (img && typeof img === 'object') fd.append(varFields[i], img.file);
+    });
+    return fd;
   };
 
-  const handleDelete = (id) => {
-    persist(products.filter(p => p.id !== id));
-    toast.success('Product deleted.');
-    addActivity('A product has been deleted', 'product');
+  const handleCreate = async (form) => {
+    try {
+      const fd = buildFormData(form);
+      const res = await Api.post('/product/productcreate', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to add product.'); return; }
+      toast.success('Product added successfully.');
+      addActivity(`New product added: ${form.name}`, 'product');
+      setModal(null);
+      fetchProducts();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to add product.');
+    }
+  };
+
+  const handleUpdate = async (form) => {
+    try {
+      const fd = buildFormData(form);
+      fd.append('id', modal?.id);
+      const res = await Api.post('/product/productupdate', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to update product.'); return; }
+      toast.success('Product updated.');
+      addActivity(`Product updated: ${form.name}`, 'product');
+      setModal(null);
+      fetchProducts();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to update product.');
+    }
+  };
+
+  const handleSave = (form) => (modal === 'add' ? handleCreate(form) : handleUpdate(form));
+
+  const handleDelete = async (id) => {
+    try {
+      const res = await Api.post('/product/productdelete', { id });
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to delete product.'); return; }
+      toast.success('Product deleted.');
+      addActivity('A product has been deleted', 'product');
+      fetchProducts();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete product.');
+    }
   };
 
   const filtered = useMemo(() => {
     const t = search.trim().toLowerCase();
     if (!t) return products;
     return products.filter(p =>
-      p.code?.toLowerCase().includes(t) ||
-      p.name?.toLowerCase().includes(t) ||
-      getCatName(p.categoryId).toLowerCase().includes(t) ||
-      getSubName(p.subCategoryId).toLowerCase().includes(t)
+      p.product_code?.toLowerCase().includes(t) ||
+      p.product_name?.toLowerCase().includes(t) ||
+      p.category_name?.toLowerCase().includes(t) ||
+      p.sub_category_name?.toLowerCase().includes(t)
     );
-  }, [products, search, categories, subCategories]);
+  }, [products, search]);
 
-  const recentCount = products.filter(p => (Date.now() - new Date(p.createdAt)) / 86400000 <= 7).length;
+  const recentCount = useMemo(() => products.filter(p => {
+    const d = new Date(p.created_date);
+    return !isNaN(d) && (Date.now() - d) / 86400000 <= 7;
+  }).length, [products]);
 
   return (
     <div className="page-container">
@@ -462,10 +532,16 @@ const ProductMaster = () => {
           <h1 className="page-title">Product Master</h1>
           <p className="text-primary-400 text-sm mt-0.5">Manage all products with images and category mapping.</p>
         </div>
-        <button onClick={() => setModal('add')} className="btn-primary">
-          <Ic d={D.add} />
-          <span>Add Product</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={fetchProducts} disabled={loading} className="btn-outline" title="Refresh list">
+            <Ic d={D.refresh} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+          <button onClick={() => setModal('add')} className="btn-primary">
+            <Ic d={D.add} />
+            <span>Add Product</span>
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -509,7 +585,16 @@ const ProductMaster = () => {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={9} className="text-center py-16">
+                    <div className="flex items-center justify-center gap-2 text-primary-400">
+                      <div className="spinner !w-5 !h-5" />
+                      <span>Loading products…</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="text-center py-16 text-primary-300">
                     {products.length === 0
@@ -522,34 +607,34 @@ const ProductMaster = () => {
                   <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
                   <td>
                     <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">
-                      {prod.code}
+                      {prod.product_code}
                     </span>
                   </td>
-                  <td className="font-medium text-primary-700 max-w-[160px] truncate" title={prod.name}>
-                    {prod.name}
+                  <td className="font-medium text-primary-700 max-w-[160px] truncate" title={prod.product_name}>
+                    {prod.product_name}
                   </td>
                   <td>
                     <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 text-accent-600 text-xs font-medium">
-                      {getCatName(prod.categoryId)}
+                      {prod.category_name || '—'}
                     </span>
                   </td>
                   <td>
                     <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-surface-200 text-primary-600 text-xs font-medium">
-                      {getSubName(prod.subCategoryId)}
+                      {prod.sub_category_name || '—'}
                     </span>
                   </td>
                   <td>
-                    {prod.indexImage
-                      ? <img src={prod.indexImage} alt="idx"
+                    {prod.index_image
+                      ? <img src={storageUrl(prod.index_image)} alt="idx"
                           className="w-10 h-10 object-cover rounded-lg border border-surface-200 shadow-sm" />
                       : <span className="text-primary-300 text-xs">—</span>
                     }
                   </td>
                   <td className="text-primary-400 text-xs whitespace-nowrap">
-                    {format(new Date(prod.createdAt), 'dd MMM yyyy')}
+                    {prod.created_date ? format(new Date(prod.created_date), 'dd MMM yyyy') : '—'}
                   </td>
                   <td className="text-primary-400 text-xs whitespace-nowrap">
-                    {format(new Date(prod.updatedAt), 'dd MMM yyyy')}
+                    {prod.updated_date ? format(new Date(prod.updated_date), 'dd MMM yyyy') : '—'}
                   </td>
                   <td>
                     <div className="flex items-center justify-center gap-1">
@@ -570,7 +655,7 @@ const ProductMaster = () => {
                       <button
                         onClick={() => setConfirm({
                           title:     'Delete Product',
-                          message:   `Are you sure you want to delete "${prod.name}"? This cannot be undone.`,
+                          message:   `Are you sure you want to delete "${prod.product_name}"? This cannot be undone.`,
                           onConfirm: () => handleDelete(prod.id),
                         })}
                         className="btn-icon text-danger-400 hover:text-danger-600 hover:bg-danger-50"
@@ -585,7 +670,7 @@ const ProductMaster = () => {
             </tbody>
           </table>
         </div>
-        {filtered.length > 0 && (
+        {!loading && filtered.length > 0 && (
           <div className="px-4 py-3 border-t border-surface-100 text-xs text-primary-400">
             Showing {filtered.length} of {products.length} products
           </div>
@@ -605,8 +690,6 @@ const ProductMaster = () => {
       {viewItem && (
         <ViewModal
           product={viewItem}
-          categoryName={getCatName(viewItem.categoryId)}
-          subCategoryName={getSubName(viewItem.subCategoryId)}
           onClose={() => setViewItem(null)}
         />
       )}
@@ -614,7 +697,7 @@ const ProductMaster = () => {
         <ConfirmationModal
           open={!!confirm}
           onClose={() => setConfirm(null)}
-          onConfirm={confirm.onConfirm}
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
           title={confirm.title}
           message={confirm.message}
         />

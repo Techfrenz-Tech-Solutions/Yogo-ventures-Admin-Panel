@@ -1,25 +1,23 @@
 /**
  * pages/NewArrivalsMaster.jsx — New Arrivals Master
- * Manage curated list of new arrival products from Product Master.
- * Features: Add (dropdown select from products), Upload image, View/Edit/Delete
- * Grid: S.No · Product Name · Image · Created Date · Updated Date · Actions
+ * Connected to live API endpoints via Api.js (axios instance).
+ *
+ * POST /newarrival/new-arrivalcreate  → create (multipart: image)
+ * GET  /newarrival/new-arrivallist    → list
+ * POST /newarrival/new-arrivalupdate  → update (multipart)
+ * POST /newarrival/new-arrivaldelete  → delete
+ * GET  /product/productlist            → product dropdown source
+ *
+ * Images are uploaded to the backend's /storage filesystem; only the
+ * filename is stored in the DB, so the UI builds the full URL via storageUrl().
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { ConfirmationModal } from '../components/ui';
 import { format } from 'date-fns';
-
-// ─── Helpers ──────────────────────────────────
-const newId  = () => Math.random().toString(36).slice(2, 10).toUpperCase();
-const nowISO = () => new Date().toISOString();
-
-// ─── Storage keys ─────────────────────────────
-const KEY_NEWARRIVALS = 'yogo_newarrivals';
-const KEY_PRODUCTS    = 'yogo_products';
-
-const readLS  = (key) => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; } };
-const writeLS = (key, data) => localStorage.setItem(key, JSON.stringify(data));
+import Api from '../utils/Api';
+import { storageUrl } from '../utils/imageUrl';
 
 // ─── Icon helper ──────────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -29,17 +27,17 @@ const Ic = ({ d, className = 'w-4 h-4' }) => (
 );
 
 const D = {
-  add:    'M12 4v16m8-8H4',
-  edit:   'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
-  trash:  'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
-  eye:    'M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
-  close:  'M6 18L18 6M6 6l12 12',
-  upload: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12',
-  clock:  'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
-  search: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0',
-  img:    'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z',
-  x:      'M6 18L18 6M6 6l12 12',
-  tag:    'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z',
+  add:     'M12 4v16m8-8H4',
+  edit:    'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
+  trash:   'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16',
+  eye:     'M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
+  close:   'M6 18L18 6M6 6l12 12',
+  upload:  'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12',
+  clock:   'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+  search:  'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0',
+  img:     'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z',
+  x:       'M6 18L18 6M6 6l12 12',
+  refresh: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
 };
 
 // ─── Stat Card ────────────────────────────────
@@ -65,16 +63,18 @@ const StatCard = ({ label, value, iconPath, color }) => {
 };
 
 // ─── Image Upload Slot ────────────────────────
+// `value` is either { file, preview } for a newly picked image, or a plain
+// filename string (from the backend) for an existing one.
 const ImageSlot = ({ value, onChange, onClear }) => {
   const ref = useRef(null);
+  const preview = value && typeof value === 'object' ? value.preview : storageUrl(value);
+
   const handleFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { toast.error('Please select an image file.'); return; }
     if (file.size > 5 * 1024 * 1024)    { toast.error('Image must be under 5 MB.');    return; }
-    const reader = new FileReader();
-    reader.onload = (ev) => onChange(ev.target.result);
-    reader.readAsDataURL(file);
+    onChange({ file, preview: URL.createObjectURL(file) });
     e.target.value = '';
   };
 
@@ -82,15 +82,15 @@ const ImageSlot = ({ value, onChange, onClear }) => {
     <div className="flex flex-col gap-2">
       <div
         className={`relative rounded-xl border-2 border-dashed transition-colors overflow-hidden
-          ${value
+          ${preview
             ? 'border-primary-200 bg-primary-50/30'
             : 'border-surface-300 bg-surface-50 hover:border-primary-300 hover:bg-primary-50/20 cursor-pointer'}`}
         style={{ width: '100%', aspectRatio: '16/9', minHeight: 120 }}
-        onClick={() => !value && ref.current?.click()}
+        onClick={() => !preview && ref.current?.click()}
       >
-        {value ? (
+        {preview ? (
           <>
-            <img src={value} alt="product" className="w-full h-full object-cover" />
+            <img src={preview} alt="product" className="w-full h-full object-cover" />
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onClear(); }}
@@ -114,7 +114,7 @@ const ImageSlot = ({ value, onChange, onClear }) => {
         className="btn-outline btn-sm w-full gap-1.5 justify-center"
       >
         <Ic d={D.upload} className="w-3.5 h-3.5" />
-        {value ? 'Change Image' : 'Upload Image'}
+        {preview ? 'Change Image' : 'Upload Image'}
       </button>
       <input ref={ref} type="file" accept="image/*" className="hidden" onChange={handleFile} />
     </div>
@@ -124,18 +124,16 @@ const ImageSlot = ({ value, onChange, onClear }) => {
 // ─── Add / Edit Modal ─────────────────────────
 const ProductModal = ({ item, products, onSave, onClose }) => {
   const isEdit    = !!item;
-  const [productId, setProductId] = useState(item?.productId || '');
-  const [image,     setImage]     = useState(item?.image     || '');
-  const [saving,    setSaving]    = useState(false);
+  const [productName, setProductName] = useState(item?.product_name || '');
+  const [image,       setImage]       = useState(item?.image        || '');
+  const [saving,      setSaving]      = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!productId) { toast.error('Please select a product.'); return; }
+    if (!productName) { toast.error('Please select a product.'); return; }
     setSaving(true);
-    setTimeout(() => {
-      onSave({ productId, image });
-      setSaving(false);
-    }, 300);
+    await onSave({ productName, image });
+    setSaving(false);
   };
 
   return (
@@ -161,13 +159,13 @@ const ProductModal = ({ item, products, onSave, onClose }) => {
               </label>
               <select
                 className="form-select"
-                value={productId}
-                onChange={e => setProductId(e.target.value)}
+                value={productName}
+                onChange={e => setProductName(e.target.value)}
                 required
               >
                 <option value="">— Select Product —</option>
                 {products.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                  <option key={p.id} value={p.product_name}>{p.product_name}</option>
                 ))}
               </select>
               {products.length === 0 && (
@@ -204,93 +202,143 @@ const ProductModal = ({ item, products, onSave, onClose }) => {
 };
 
 // ─── View Modal ───────────────────────────────
-const ViewModal = ({ item, productName, onClose }) => (
-  <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-    <div className="modal-box w-full !max-w-sm">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
-        <h3 className="font-heading text-base font-semibold text-primary-600">
-          New Arrival Details
-        </h3>
-        <button onClick={onClose} className="btn-icon text-primary-400 hover:text-primary-600">
-          <Ic d={D.close} />
-        </button>
-      </div>
-      <div className="p-6 space-y-4">
-        {item.image ? (
-          <img
-            src={item.image}
-            alt={productName}
-            className="w-full rounded-2xl border border-surface-200 object-cover shadow-sm"
-            style={{ maxHeight: 220 }}
-          />
-        ) : (
-          <div className="w-full rounded-2xl border-2 border-dashed border-surface-200
-            bg-surface-50 flex items-center justify-center py-10">
-            <Ic d={D.img} className="w-10 h-10 text-surface-300" />
-          </div>
-        )}
-        {[
-          { label: 'Product Name',  value: productName },
-          { label: 'Created Date',  value: format(new Date(item.createdAt),  'dd MMM yyyy, hh:mm a') },
-          { label: 'Updated Date',  value: format(new Date(item.updatedAt),  'dd MMM yyyy, hh:mm a') },
-        ].map(({ label, value }) => (
-          <div key={label} className="flex flex-col gap-0.5">
-            <span className="text-[11px] font-medium text-primary-400 uppercase tracking-wide">{label}</span>
-            <span className="text-sm font-medium text-primary-700">{value}</span>
-          </div>
-        ))}
-      </div>
-      <div className="px-6 pb-5 flex justify-end">
-        <button onClick={onClose} className="btn-outline">Close</button>
+const ViewModal = ({ item, onClose }) => {
+  const preview = item.image && typeof item.image === 'object' ? item.image.preview : storageUrl(item.image);
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box w-full !max-w-sm">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+          <h3 className="font-heading text-base font-semibold text-primary-600">
+            New Arrival Details
+          </h3>
+          <button onClick={onClose} className="btn-icon text-primary-400 hover:text-primary-600">
+            <Ic d={D.close} />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          {preview ? (
+            <img
+              src={preview}
+              alt={item.product_name}
+              className="w-full rounded-2xl border border-surface-200 object-cover shadow-sm"
+              style={{ maxHeight: 220 }}
+            />
+          ) : (
+            <div className="w-full rounded-2xl border-2 border-dashed border-surface-200
+              bg-surface-50 flex items-center justify-center py-10">
+              <Ic d={D.img} className="w-10 h-10 text-surface-300" />
+            </div>
+          )}
+          {[
+            { label: 'Product Name',  value: item.product_name },
+            { label: 'Created Date',  value: item.created_date ? format(new Date(item.created_date), 'dd MMM yyyy, hh:mm a') : '—' },
+            { label: 'Updated Date',  value: item.updated_date ? format(new Date(item.updated_date), 'dd MMM yyyy, hh:mm a') : '—' },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-medium text-primary-400 uppercase tracking-wide">{label}</span>
+              <span className="text-sm font-medium text-primary-700">{value}</span>
+            </div>
+          ))}
+        </div>
+        <div className="px-6 pb-5 flex justify-end">
+          <button onClick={onClose} className="btn-outline">Close</button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ─── Main Page ────────────────────────────────
 const NewArrivalsMaster = () => {
   const [items,    setItems]    = useState([]);
   const [products, setProducts] = useState([]);
+  const [loading,  setLoading]  = useState(false);
   const [search,   setSearch]   = useState('');
   const [modal,    setModal]    = useState(null);
   const [viewItem, setViewItem] = useState(null);
   const [confirm,  setConfirm]  = useState(null);
 
-  useEffect(() => {
-    setProducts(readLS(KEY_PRODUCTS));
-    setItems(readLS(KEY_NEWARRIVALS));
-  }, []);
-
-  const persist = useCallback((data) => {
-    setItems(data);
-    writeLS(KEY_NEWARRIVALS, data);
-  }, []);
-
-  const getProductName = (id) => products.find(p => p.id === id)?.name || '—';
-
-  const handleSave = (form) => {
-    if (modal === 'add') {
-      persist([...items, { id: newId(), ...form, createdAt: nowISO(), updatedAt: nowISO() }]);
-      toast.success('New arrival product added.');
-    } else {
-      persist(items.map(i => i.id === modal.id ? { ...i, ...form, updatedAt: nowISO() } : i));
-      toast.success('New arrival product updated.');
+  const fetchProducts = useCallback(async () => {
+    try {
+      const res = await Api.get('/product/productlist');
+      setProducts(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to load products.');
     }
-    setModal(null);
+  }, []);
+
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await Api.get('/newarrival/new-arrivallist');
+      setItems(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to load new arrivals.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchProducts(); fetchItems(); }, [fetchProducts, fetchItems]);
+
+  const handleCreate = async ({ productName, image }) => {
+    try {
+      const fd = new FormData();
+      fd.append('product_name', productName);
+      if (image && typeof image === 'object') fd.append('image', image.file);
+      const res = await Api.post('/newarrival/new-arrivalcreate', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to add new arrival.'); return; }
+      toast.success('New arrival product added.');
+      setModal(null);
+      fetchItems();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to add new arrival.');
+    }
   };
 
-  const handleDelete = (id) => {
-    persist(items.filter(i => i.id !== id));
-    toast.success('Entry deleted.');
+  const handleUpdate = async ({ productName, image }) => {
+    try {
+      const fd = new FormData();
+      fd.append('id', modal?.id);
+      fd.append('product_name', productName);
+      if (image && typeof image === 'object') fd.append('image', image.file);
+      const res = await Api.post('/newarrival/new-arrivalupdate', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to update new arrival.'); return; }
+      toast.success('New arrival product updated.');
+      setModal(null);
+      fetchItems();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to update new arrival.');
+    }
+  };
+
+  const handleSave = (form) => (modal === 'add' ? handleCreate(form) : handleUpdate(form));
+
+  const handleDelete = async (id) => {
+    try {
+      const res = await Api.post('/newarrival/new-arrivaldelete', { id });
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to delete entry.'); return; }
+      toast.success('Entry deleted.');
+      fetchItems();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete entry.');
+    }
   };
 
   const filtered = useMemo(() => {
     const t = search.trim().toLowerCase();
     if (!t) return items;
-    return items.filter(i => getProductName(i.productId).toLowerCase().includes(t));
-  }, [items, search, products]);
+    return items.filter(i => i.product_name?.toLowerCase().includes(t));
+  }, [items, search]);
 
-  const recentCount = items.filter(i => (Date.now() - new Date(i.createdAt)) / 86400000 <= 7).length;
+  const recentCount = useMemo(() => items.filter(i => {
+    const d = new Date(i.created_date);
+    return !isNaN(d) && (Date.now() - d) / 86400000 <= 7;
+  }).length, [items]);
 
   return (
     <div className="page-container">
@@ -300,10 +348,16 @@ const NewArrivalsMaster = () => {
           <h1 className="page-title">New Arrivals</h1>
           <p className="text-primary-400 text-sm mt-0.5">Manage your latest new arrival product list.</p>
         </div>
-        <button onClick={() => setModal('add')} className="btn-primary">
-          <Ic d={D.add} />
-          <span>Add New Arrival</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={fetchItems} disabled={loading} className="btn-outline" title="Refresh list">
+            <Ic d={D.refresh} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+          <button onClick={() => setModal('add')} className="btn-primary">
+            <Ic d={D.add} />
+            <span>Add New Arrival</span>
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -344,7 +398,16 @@ const NewArrivalsMaster = () => {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-16">
+                    <div className="flex items-center justify-center gap-2 text-primary-400">
+                      <div className="spinner !w-5 !h-5" />
+                      <span>Loading new arrivals…</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-center py-16">
                     <div className="flex flex-col items-center gap-3 text-primary-300">
@@ -362,11 +425,11 @@ const NewArrivalsMaster = () => {
               ) : filtered.map((item, idx) => (
                 <tr key={item.id}>
                   <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
-                  <td className="font-medium text-primary-700">{getProductName(item.productId)}</td>
+                  <td className="font-medium text-primary-700">{item.product_name}</td>
                   <td>
                     {item.image ? (
                       <img
-                        src={item.image}
+                        src={storageUrl(item.image)}
                         alt="product"
                         className="w-14 h-10 object-cover rounded-lg border border-surface-200 shadow-sm"
                       />
@@ -378,10 +441,10 @@ const NewArrivalsMaster = () => {
                     )}
                   </td>
                   <td className="text-primary-400 text-xs whitespace-nowrap">
-                    {format(new Date(item.createdAt), 'dd MMM yyyy')}
+                    {item.created_date ? format(new Date(item.created_date), 'dd MMM yyyy') : '—'}
                   </td>
                   <td className="text-primary-400 text-xs whitespace-nowrap">
-                    {format(new Date(item.updatedAt), 'dd MMM yyyy')}
+                    {item.updated_date ? format(new Date(item.updated_date), 'dd MMM yyyy') : '—'}
                   </td>
                   <td>
                     <div className="flex items-center justify-center gap-1">
@@ -402,7 +465,7 @@ const NewArrivalsMaster = () => {
                       <button
                         onClick={() => setConfirm({
                           title:     'Delete Entry',
-                          message:   `Remove "${getProductName(item.productId)}" from new arrivals list?`,
+                          message:   `Remove "${item.product_name}" from new arrivals list?`,
                           onConfirm: () => handleDelete(item.id),
                         })}
                         className="btn-icon text-danger-400 hover:text-danger-600 hover:bg-danger-50"
@@ -436,7 +499,6 @@ const NewArrivalsMaster = () => {
       {viewItem && (
         <ViewModal
           item={viewItem}
-          productName={getProductName(viewItem.productId)}
           onClose={() => setViewItem(null)}
         />
       )}
@@ -444,7 +506,7 @@ const NewArrivalsMaster = () => {
         <ConfirmationModal
           open={!!confirm}
           onClose={() => setConfirm(null)}
-          onConfirm={confirm.onConfirm}
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
           title={confirm.title}
           message={confirm.message}
         />
