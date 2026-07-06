@@ -36,11 +36,13 @@
 
 // vite.config.js
 
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  return {
   plugins: [react()],
 
   resolve: {
@@ -56,7 +58,9 @@ export default defineConfig({
 
     proxy: {
       '/api': {
-        target: 'http://192.168.0.20:7002', // actual backend
+        // Local backend. Override with VITE_PROXY_TARGET in .env if the API
+        // is on another machine (e.g. http://192.168.x.x:7002).
+        target: env.VITE_PROXY_TARGET || 'http://localhost:7002',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, ''), // strips /api prefix before forwarding
@@ -98,4 +102,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });
