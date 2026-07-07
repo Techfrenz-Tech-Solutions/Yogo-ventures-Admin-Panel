@@ -10,11 +10,25 @@ const Api = axios.create({
   timeout: 8000, // 8s — fail fast if backend is restarting
 });
 
-// Response interceptor — normalise network/timeout errors into readable messages
+// Request interceptor — attach the JWT from login as a Bearer token on every request.
+Api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('accessToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+// Response interceptor — normalise network/timeout errors into readable messages,
+// and force a re-login when the token is missing/invalid/expired.
 Api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+    if (err.response?.status === 401) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('adminUser');
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+    } else if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
       err.response = err.response || {};
       err.response.data = { message: 'Request timed out. The server may be restarting — please try again.' };
     } else if (!err.response) {

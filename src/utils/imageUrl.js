@@ -1,8 +1,9 @@
-const API_ORIGIN = import.meta.env.VITE_API_BASE_URL || '';
+const API_ORIGIN = import.meta.env.VITE_API_URL || 'http://localhost:7002';
 
 // Backend stores just the uploaded filename; build the full /storage URL for it.
-// In dev, Vite proxies /storage → http://192.168.0.29:7002/storage (no CORS).
-// In production, set VITE_API_BASE_URL to the actual server origin.
+// Hits the backend origin directly (not through the /api dev proxy, which only
+// covers /api — /storage isn't proxied). Browsers don't apply CORS to <img>
+// loads, so this works cross-origin without any backend changes.
 export const storageUrl = (filename) => {
   if (!filename) return '';
   // Already a full URL — return as-is
