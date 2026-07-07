@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
-import { ConfirmationModal } from '../components/ui';
+import { ConfirmationModal, RetryBlock } from '../components/ui';
 import toast from 'react-hot-toast';
 import Api from '../utils/Api';
 
@@ -231,6 +231,7 @@ const ViewModal = ({ item, onClose }) => {
 const OrderTracking = () => {
   const [items,    setItems]    = useState([]);
   const [loading,  setLoading]  = useState(false);
+  const [fetchError, setFetchError] = useState('');
   const [search,   setSearch]   = useState('');
   const [modal,    setModal]    = useState(null); // null | 'add' | itemObject
   const [viewItem, setViewItem] = useState(null);
@@ -239,13 +240,14 @@ const OrderTracking = () => {
   // ── Fetch list ──────────────────────────────
   const fetchItems = useCallback(async () => {
     setLoading(true);
+    setFetchError('');
     try {
       const res  = await Api.get('/ordertrack/order-trackinglist');
       const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
       const sorted = [...list].sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0));
       setItems(sorted);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to load order tracking data.');
+      setFetchError(err?.response?.data?.message || 'Failed to load. The server may be restarting.');
     } finally {
       setLoading(false);
     }
@@ -369,6 +371,12 @@ const OrderTracking = () => {
                     <div className="spinner !w-5 !h-5" /><span>Loading orders…</span>
                   </div>
                 </td></tr>
+              ) : fetchError ? (
+                <tr>
+                  <td colSpan={12}>
+                    <RetryBlock message={fetchError} onRetry={fetchItems} colSpan={12} />
+                  </td>
+                </tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={12} className="text-center py-16">
                   <div className="flex flex-col items-center gap-3 text-primary-300">

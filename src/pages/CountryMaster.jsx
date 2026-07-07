@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal } from '../components/ui';
+import { ConfirmationModal, RetryBlock } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
 
@@ -172,6 +172,7 @@ const ViewModal = ({ country, onClose }) => {
 const CountryMaster = () => {
   const [countries, setCountries] = useState([]);
   const [loading,   setLoading]   = useState(false);
+  const [fetchError, setFetchError] = useState('');
   const [search,    setSearch]    = useState('');
   const [modal,     setModal]     = useState(null); // null | 'add' | countryObject
   const [viewItem,  setViewItem]  = useState(null);
@@ -180,11 +181,10 @@ const CountryMaster = () => {
   // ── Fetch list ──────────────────────────────
   const fetchCountries = useCallback(async () => {
     setLoading(true);
+    setFetchError('');
     try {
       const res = await Api.get('/country/countrylist');
-      // Support both { data: [...] } and direct array responses
       const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
-      // Sort ascending by numeric id so the table always shows oldest → newest
       const sorted = [...list].sort((a, b) => {
         const idA = Number(a.id ?? a._id ?? 0);
         const idB = Number(b.id ?? b._id ?? 0);
@@ -192,7 +192,7 @@ const CountryMaster = () => {
       });
       setCountries(sorted);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to load countries.');
+      setFetchError(err?.response?.data?.message || 'Failed to load countries. The server may be restarting.');
     } finally {
       setLoading(false);
     }
@@ -345,6 +345,8 @@ const CountryMaster = () => {
                     </div>
                   </td>
                 </tr>
+              ) : fetchError ? (
+                <RetryBlock message={fetchError} onRetry={fetchCountries} colSpan={6} />
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-center py-16 text-primary-300 dark:text-primary-500">

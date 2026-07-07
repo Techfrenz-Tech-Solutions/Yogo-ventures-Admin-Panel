@@ -428,7 +428,7 @@ const ProductMaster = () => {
     try {
       const res = await Api.get('/product/productlist');
       const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
-      setProducts(list);
+      setProducts([...list].sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0)));
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to load products.');
     } finally {

@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal } from '../components/ui';
+import { ConfirmationModal, RetryBlock } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
 
@@ -171,6 +171,7 @@ const ViewModal = ({ category, onClose }) => {
 const CategoryMaster = () => {
   const [categories, setCategories] = useState([]);
   const [loading,    setLoading]    = useState(false);
+  const [fetchError, setFetchError] = useState('');
   const [search,     setSearch]     = useState('');
   const [modal,      setModal]      = useState(null); // null | 'add' | categoryObject
   const [viewItem,   setViewItem]   = useState(null);
@@ -179,6 +180,7 @@ const CategoryMaster = () => {
   // ── Fetch list ──────────────────────────────
   const fetchCategories = useCallback(async () => {
     setLoading(true);
+    setFetchError('');
     try {
       const res = await Api.get('/category/categorylist');
       const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
@@ -190,7 +192,7 @@ const CategoryMaster = () => {
       });
       setCategories(sorted);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to load categories.');
+      setFetchError(err?.response?.data?.message || 'Failed to load. The server may be restarting.');
     } finally {
       setLoading(false);
     }
@@ -341,6 +343,12 @@ const CategoryMaster = () => {
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading categories…</span>
                     </div>
+                  </td>
+                </tr>
+              ) : fetchError ? (
+                <tr>
+                  <td colSpan={6}>
+                    <RetryBlock message={fetchError} onRetry={fetchCategories} colSpan={6} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (

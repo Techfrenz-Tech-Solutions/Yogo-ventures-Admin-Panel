@@ -270,8 +270,9 @@ const NewArrivalsMaster = () => {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await Api.get('/newarrival/new-arrivallist');
-      setItems(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+      const res  = await Api.get('/newarrival/new-arrivallist');
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      setItems([...list].sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0)));
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to load new arrivals.');
     } finally {

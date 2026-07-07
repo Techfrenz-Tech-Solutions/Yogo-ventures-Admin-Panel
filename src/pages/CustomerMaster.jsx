@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal } from '../components/ui';
+import { ConfirmationModal, RetryBlock } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
 
@@ -209,6 +209,7 @@ const CustomerMaster = () => {
   const [customers, setCustomers] = useState([]);
   const [countries, setCountries] = useState([]);
   const [loading,   setLoading]   = useState(false);
+  const [fetchError, setFetchError] = useState('');
   const [search,    setSearch]    = useState('');
   const [modal,     setModal]     = useState(null); // null | 'add' | customerObject
   const [viewItem,  setViewItem]  = useState(null);
@@ -228,6 +229,7 @@ const CustomerMaster = () => {
   // ── Fetch customer list ──────────────────────
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
+    setFetchError('');
     try {
       const res  = await Api.get('/customer/customerlist');
       const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
@@ -235,7 +237,7 @@ const CustomerMaster = () => {
       const sorted = [...list].sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0));
       setCustomers(sorted);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to load customers.');
+      setFetchError(err?.response?.data?.message || 'Failed to load. The server may be restarting.');
     } finally {
       setLoading(false);
     }
@@ -401,6 +403,12 @@ const CustomerMaster = () => {
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading customers…</span>
                     </div>
+                  </td>
+                </tr>
+              ) : fetchError ? (
+                <tr>
+                  <td colSpan={8}>
+                    <RetryBlock message={fetchError} onRetry={fetchCustomers} colSpan={8} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (

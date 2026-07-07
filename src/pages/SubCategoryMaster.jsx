@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal } from '../components/ui';
+import { ConfirmationModal, RetryBlock } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
 
@@ -209,6 +209,7 @@ const SubCategoryMaster = () => {
   const [categories,    setCategories]    = useState([]);
   const [subCategories, setSubCategories] = useState([]);
   const [loading,       setLoading]       = useState(false);
+  const [fetchError,    setFetchError]    = useState('');
   const [search,        setSearch]        = useState('');
   const [modal,         setModal]         = useState(null); // null | 'add' | subCategoryObject
   const [viewItem,      setViewItem]      = useState(null);
@@ -228,6 +229,7 @@ const SubCategoryMaster = () => {
   // ── Fetch sub category list ──────────────────
   const fetchSubCategories = useCallback(async () => {
     setLoading(true);
+    setFetchError('');
     try {
       const res = await Api.get('/subcategory/sub-categorylist');
       const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
@@ -239,7 +241,7 @@ const SubCategoryMaster = () => {
       });
       setSubCategories(sorted);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to load sub categories.');
+      setFetchError(err?.response?.data?.message || 'Failed to load. The server may be restarting.');
     } finally {
       setLoading(false);
     }
@@ -403,6 +405,12 @@ const SubCategoryMaster = () => {
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading sub categories…</span>
                     </div>
+                  </td>
+                </tr>
+              ) : fetchError ? (
+                <tr>
+                  <td colSpan={7}>
+                    <RetryBlock message={fetchError} onRetry={fetchSubCategories} colSpan={7} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (

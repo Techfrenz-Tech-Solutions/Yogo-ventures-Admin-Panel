@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { format, isToday, isThisWeek } from 'date-fns';
 import toast from 'react-hot-toast';
-import { ConfirmationModal } from '../components/ui';
+import { ConfirmationModal, RetryBlock } from '../components/ui';
 import Api from '../utils/Api';
 
 // ─── SVG Icon helper ──────────────────────────
@@ -154,6 +154,7 @@ const ViewModal = ({ enq, onClose }) => {
 const GeneralEnquiries = () => {
   const [enquiries, setEnquiries] = useState([]);
   const [loading,   setLoading]   = useState(false);
+  const [fetchError, setFetchError] = useState('');
   const [search,    setSearch]    = useState('');
   const [viewItem,  setViewItem]  = useState(null);
   const [confirm,   setConfirm]   = useState(null);
@@ -161,6 +162,7 @@ const GeneralEnquiries = () => {
   // ── Fetch list ──────────────────────────────
   const fetchEnquiries = useCallback(async () => {
     setLoading(true);
+    setFetchError('');
     try {
       const res  = await Api.get('/enquiry/enquirylist');
       const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
@@ -168,7 +170,7 @@ const GeneralEnquiries = () => {
       const sorted = [...list].sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0));
       setEnquiries(sorted);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to load enquiries.');
+      setFetchError(err?.response?.data?.message || 'Failed to load. The server may be restarting.');
     } finally {
       setLoading(false);
     }
@@ -309,6 +311,12 @@ const GeneralEnquiries = () => {
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading enquiries…</span>
                     </div>
+                  </td>
+                </tr>
+              ) : fetchError ? (
+                <tr>
+                  <td colSpan={11}>
+                    <RetryBlock message={fetchError} onRetry={fetchEnquiries} colSpan={11} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (

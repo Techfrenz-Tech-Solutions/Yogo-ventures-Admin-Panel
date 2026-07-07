@@ -335,3 +335,34 @@ export const Spinner = ({ size = 'md' }) => {
   const sizeMap = { sm: 'w-4 h-4', md: 'w-6 h-6', lg: 'w-10 h-10' };
   return <div className={clsx('spinner', sizeMap[size])} />;
 };
+
+
+// ─── Retry Block ───────────────────────────────
+// Shows when an API call fails (e.g. backend restarting).
+// Drop this inside a table cell or page section instead of the loading spinner.
+export const RetryBlock = ({ message = 'Failed to load data.', onRetry, colSpan = 6 }) => (
+  <tr>
+    <td colSpan={colSpan} className="text-center py-16">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-14 h-14 rounded-2xl bg-danger-50 flex items-center justify-center">
+          <svg className="w-7 h-7 text-danger-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+        </div>
+        <p className="text-sm text-primary-500 font-medium">{message}</p>
+        <p className="text-xs text-primary-300">The server may be restarting. Please wait a moment.</p>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="btn-outline btn-sm mt-1 gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Retry
+          </button>
+        )}
+      </div>
+    </td>
+  </tr>
+);

@@ -275,8 +275,9 @@ const BestSellingMaster = () => {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await Api.get('/bestselling/best-sellinglist');
-      setItems(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+      const res  = await Api.get('/bestselling/best-sellinglist');
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      setItems([...list].sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0)));
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to load best selling products.');
     } finally {

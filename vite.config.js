@@ -60,10 +60,16 @@ export default defineConfig(({ mode }) => {
       '/api': {
         // Local backend. Override with VITE_PROXY_TARGET in .env if the API
         // is on another machine (e.g. http://192.168.x.x:7002).
-        target: env.VITE_PROXY_TARGET || 'http://localhost:7002',
+        target: env.VITE_PROXY_TARGET || 'http://192.168.0.29:7002',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, ''), // strips /api prefix before forwarding
+      },
+      '/storage': {
+        // Proxy image/static file requests to the same backend
+        target: env.VITE_PROXY_TARGET || 'http://192.168.0.29:7002',
+        changeOrigin: true,
+        secure: false,
       },
     },
 
