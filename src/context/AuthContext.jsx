@@ -23,37 +23,40 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const token     = localStorage.getItem('accessToken');
     const savedUser = localStorage.getItem('adminUser');
-    if (token === 'yogo-admin-token' && savedUser) {
+    if (token && savedUser) {
       try { setAdmin(JSON.parse(savedUser)); } catch { localStorage.clear(); }
     }
     setInitializing(false);
   }, []);
 
   // ─── Step 1: Email + Password login ────────
+  // Calls the real backend (POST /auth/login), which returns a signed JWT.
+  // The backend has no MFA endpoints, so this always resolves the session
+  // in one step — authStage never moves to 'mfa_required'.
   const login = useCallback(async (email, password) => {
-    const VALID_EMAIL    = 'admin@yogoventures.com';
-    const VALID_PASSWORD = 'Yogo@123';
+    try {
+      const { data } = await authAPI.login({ email_id: email, password });
 
-    if (email !== VALID_EMAIL || password !== VALID_PASSWORD) {
-      const message = 'Invalid credentials. Please check your email and password.';
+      if (data.status !== 1) {
+        const message = data.message || 'Invalid credentials. Please check your email and password.';
+        toast.error(message);
+        return { success: false, error: message };
+      }
+
+      // Backend returns "Bearer <token>" — store the raw token; the axios
+      // interceptors add the "Bearer " prefix back on each request.
+      const rawToken = (data.token || '').replace(/^Bearer\s+/i, '');
+      setTokens(rawToken, null);
+      localStorage.setItem('adminUser', JSON.stringify(data.user));
+      setAdmin(data.user);
+      setAuthStage('idle');
+      toast.success(`Welcome, ${data.user.full_name}!`);
+      return { success: true };
+    } catch (err) {
+      const message = err.response?.data?.message || 'Unable to reach the server. Please try again.';
       toast.error(message);
       return { success: false, error: message };
     }
-
-    const adminUser = {
-      id:        1,
-      firstName: 'Admin',
-      lastName:  'Yogo Ventures',
-      email:     VALID_EMAIL,
-      role:      'admin',
-    };
-
-    localStorage.setItem('accessToken', 'yogo-admin-token');
-    localStorage.setItem('adminUser', JSON.stringify(adminUser));
-    setAdmin(adminUser);
-    setAuthStage('idle');
-    toast.success(`Welcome, ${adminUser.firstName}!`);
-    return { success: true };
   }, []);
 
   // ─── Step 2: MFA token verification ────────
@@ -79,8 +82,7 @@ export const AuthProvider = ({ children }) => {
 
   // ─── Logout ───────────────────────────────
   const logout = useCallback(async () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('adminUser');
+    clearTokens();
     setAdmin(null);
     setAuthStage('idle');
     setTempToken(null);
