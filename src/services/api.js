@@ -166,6 +166,15 @@ export const settingsAPI = {
   update: proxy((d) => api.put('/settings', d),      mockSettingsAPI.update),
 };
 
+// Quote-confirmation email settings — real backend only (no demo/mock path;
+// this feature has no offline stand-in since it talks to live SMTP/DB state).
+export const quoteConfirmationEmailAPI = {
+  get:      () => api.get('/settings/quote-confirmation-email'),
+  update:   (d) => api.put('/settings/quote-confirmation-email', d),
+  preview:  (d) => api.post('/settings/quote-confirmation-email/preview', d),
+  sendTest: (d) => api.post('/settings/quote-confirmation-email/send-test', d),
+};
+
 export const profileAPI = {
   get:            proxy(() => api.get('/profile'),                                                          mockProfileAPI.get),
   update:         proxy((d) => api.put('/profile', d),                                                     mockProfileAPI.update),
