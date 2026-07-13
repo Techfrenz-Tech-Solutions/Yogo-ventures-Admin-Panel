@@ -18,7 +18,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { productAPI, categoryAPI, parentCategoryAPI } from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
 import toast from 'react-hot-toast';
-import { addActivity } from '../components/Header';
 import { ConfirmationModal } from '../components/ui';
 import './ProductModal.css';
 
@@ -402,7 +401,6 @@ const ProductModal = ({ product, categoryTree, onSave, onClose }) => {
       else        await productAPI.create(fd);
 
       toast.success(`Product ${isEdit ? 'updated' : 'created'} successfully!`);
-        addActivity(`Product ${isEdit ? 'updated' : 'added'}: ${form.name}`, 'product');
       onSave();
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to save product.');
@@ -652,7 +650,6 @@ const Products = () => {
         try {
           await productAPI.delete(id);
           toast.success('Product deleted.');
-            addActivity(`Product deleted: ${name}`, 'product');
           loadProducts(pagination.page);
           // Refresh categories so product count cards stay in sync
           loadCategories();

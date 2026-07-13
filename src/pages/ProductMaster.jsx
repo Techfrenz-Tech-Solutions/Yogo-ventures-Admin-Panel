@@ -13,7 +13,6 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { addActivity } from '../components/Header';
 import { ConfirmationModal } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
@@ -469,7 +468,6 @@ const ProductMaster = () => {
       });
       if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to add product.'); return; }
       toast.success('Product added successfully.');
-      addActivity(`New product added: ${form.name}`, 'product');
       setModal(null);
       fetchProducts();
     } catch (err) {
@@ -486,7 +484,6 @@ const ProductMaster = () => {
       });
       if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to update product.'); return; }
       toast.success('Product updated.');
-      addActivity(`Product updated: ${form.name}`, 'product');
       setModal(null);
       fetchProducts();
     } catch (err) {
@@ -501,7 +498,6 @@ const ProductMaster = () => {
       const res = await Api.post('/product/productdelete', { id });
       if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to delete product.'); return; }
       toast.success('Product deleted.');
-      addActivity('A product has been deleted', 'product');
       fetchProducts();
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to delete product.');

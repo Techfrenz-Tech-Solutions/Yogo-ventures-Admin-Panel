@@ -1,26 +1,21 @@
 /**
  * pages/SampleEnquiries.jsx — Sample Enquiries
+ * Connected to live API endpoints via Api.js (axios instance).
+ *
+ * POST /sample/sample-enquirycreate  → create
+ * GET  /sample/sample-enquirylist    → list
+ * POST /sample/sample-enquiryupdate  → update
+ * POST /sample/sample-enquirydelete  → delete
+ *
  * Grid: Enquiry ID · Customer ID · Enquired On · Product Name · Quantity · Responded ·
  *       Sample Ordered · Sample Shipped · Order Placed · Created Date · Updated Date · Actions
- * Actions: View · Update · Delete · Mark as Done
- * Modal: Enquiry ID (auto), Customer ID, Enquired On (calendar), Product Name (dropdown from products),
- *        Quantity, Responded, Sample Ordered, Sample Shipped, Order Placed
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { format, isToday, isThisWeek, isThisMonth } from 'date-fns';
-import { ConfirmationModal } from '../components/ui';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { format, isToday, isThisWeek } from 'date-fns';
+import { ConfirmationModal, RetryBlock } from '../components/ui';
 import toast from 'react-hot-toast';
-import { addActivity } from '../components/Header';
-
-const newId = () => 'SE-' + Math.random().toString(36).slice(2,8).toUpperCase();
-const nowISO = () => new Date().toISOString();
-
-const readLS = (key) => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; } };
-const writeLS = (key, data) => localStorage.setItem(key, JSON.stringify(data));
-
-const KEY_PRODUCTS = 'yogo_products';
-const KEY_SAMPLES  = 'yogo_samples';
+import Api from '../utils/Api';
 
 const Ic = ({ d, className = 'w-4 h-4' }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -39,10 +34,9 @@ const D = {
   box:        'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
   user:       'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
   done:       'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-  eyeCheck:   'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0zM12 15a3 3 0 100-6 3 3 0 000 6z M10 15h4 M12 13v4',
   envelope:   'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
   check:      'M5 13l4 4L19 7',
-  cross:      'M6 18L18 6M6 6l12 12',
+  refresh:    'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
 };
 
 // ─── Stat Card ────────────────────────────────
@@ -70,38 +64,37 @@ const StatCard = ({ label, value, iconPath, color, sub }) => {
 
 // ─── Status badge helper ──────────────────────
 const StatusBadge = ({ text }) => {
-  if (text === 'Yes' || text === true || text === 'Yes') return <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-success-50 text-success-600 text-xs font-semibold">Yes</span>;
-  if (text === 'No'  || text === false|| text === 'No') return <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-danger-50 text-danger-600 text-xs font-semibold">No</span>;
+  if (text === 'Yes') return <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-success-50 text-success-600 text-xs font-semibold">Yes</span>;
+  if (text === 'No')  return <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-danger-50 text-danger-600 text-xs font-semibold">No</span>;
   return <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-surface-200 text-primary-600 text-xs font-medium">{text || '—'}</span>;
 };
 
 // ─── Modal Components ─────────────────────────
-const SampleModal = ({ item, products, onSave, onClose }) => {
+const SampleModal = ({ item, nextEnquiryId, customers, products, onSave, onClose }) => {
   const isEdit = !!item;
   const [form, setForm] = useState({
-    enquiryId:   item?.enquiryId   || '',
-    customerId:  item?.customerId  || '',
-    enquiredOn:  item?.enquiredOn  || format(new Date(), 'yyyy-MM-dd'),
-    productId:   item?.productId   || '',
-    quantity:    item?.quantity    || 1,
-    responded:   item?.responded   || 'No',
-    sampleOrdered: item?.sampleOrdered || 'No',
-    sampleShipped: item?.sampleShipped || 'No',
-    orderPlaced: item?.orderPlaced || 'No',
+    enquiry_id:     item?.enquiry_id     ?? nextEnquiryId,
+    customer_id:    item?.customer_id    ?? '',
+    enquired_on:    item?.enquired_on    ? String(item.enquired_on).slice(0, 10) : format(new Date(), 'yyyy-MM-dd'),
+    product_name:   item?.product_name   || '',
+    quantity:       item?.quantity       ?? 1,
+    responded:      item?.responded      || 'No',
+    sample_ordered: item?.sample_ordered || 'No',
+    sample_shipped: item?.sample_shipped || 'No',
+    order_placed:   item?.order_placed   || 'No',
   });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.customerId)     { toast.error('Customer ID is required.'); return; }
-    if (!form.enquiredOn)     { toast.error('Enquired date is required.'); return; }
-    if (!form.productId)      { toast.error('Product selection is required.'); return; }
+    if (!form.customer_id)  { toast.error('Please select a customer.'); return; }
+    if (!form.enquired_on)  { toast.error('Enquired date is required.'); return; }
+    if (!form.product_name) { toast.error('Please select a product.'); return; }
     setSaving(true);
-    setTimeout(() => { onSave(form); setSaving(false); }, 300);
+    await onSave(form);
+    setSaving(false);
   };
-
-  const product = products.find(p => p.id === form.productId);
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -114,19 +107,35 @@ const SampleModal = ({ item, products, onSave, onClose }) => {
         </div>
         <form onSubmit={handleSubmit}>
           <div className="p-6 space-y-4 overflow-y-auto" style={{ maxHeight:'calc(90vh - 140px)' }}>
-            {/* Row 1: Enquiry ID, Customer ID, Enquired On */}
+            {/* Row 1: Enquiry ID (auto), Customer, Enquired On */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="form-group !mb-0">
-                <label className="form-label">Enquiry ID <span className="text-danger-500">*</span></label>
-                <input className="form-input" value={form.enquiryId} onChange={e=>set('enquiryId',e.target.value.toUpperCase())} placeholder="e.g. SE-ABC123" required />
+                <label className="form-label">Enquiry ID</label>
+                <div className="form-input bg-surface-100 text-primary-500 flex items-center cursor-not-allowed select-none">
+                  #{form.enquiry_id}
+                </div>
+                <p className="text-[11px] text-primary-300 mt-1">Auto-generated — not editable.</p>
               </div>
               <div className="form-group !mb-0">
-                <label className="form-label">Customer ID <span className="text-danger-500">*</span></label>
-                <input className="form-input" value={form.customerId} onChange={e=>set('customerId',e.target.value)} placeholder="e.g. CUST-ABC" required />
+                <label className="form-label">Customer <span className="text-danger-500">*</span></label>
+                <select
+                  className="form-select"
+                  value={form.customer_id}
+                  onChange={e => set('customer_id', e.target.value)}
+                  required
+                >
+                  <option value="">— Select Customer —</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.customer_name} (#{c.id})</option>
+                  ))}
+                </select>
+                {customers.length === 0 && (
+                  <p className="text-[11px] text-danger-500 mt-1">No customers found. Add one in Customer Master first.</p>
+                )}
               </div>
               <div className="form-group !mb-0">
                 <label className="form-label">Enquired On <span className="text-danger-500">*</span></label>
-                <input type="date" className="form-input" value={form.enquiredOn} onChange={e=>set('enquiredOn',e.target.value)} required />
+                <input type="date" className="form-input" value={form.enquired_on} onChange={e=>set('enquired_on',e.target.value)} required />
               </div>
             </div>
 
@@ -134,11 +143,20 @@ const SampleModal = ({ item, products, onSave, onClose }) => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="form-group !mb-0">
                 <label className="form-label">Product Name <span className="text-danger-500">*</span></label>
-                <select className="form-select" value={form.productId} onChange={e=>set('productId',e.target.value)} required>
+                <select
+                  className="form-select"
+                  value={form.product_name}
+                  onChange={e => set('product_name', e.target.value)}
+                  required
+                >
                   <option value="">— Select Product —</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {products.map(p => (
+                    <option key={p.id} value={p.product_name}>{p.product_name}</option>
+                  ))}
                 </select>
-                {products.length === 0 && <p className="text-[11px] text-danger-500 mt-1">No products available. Add in Product Master first.</p>}
+                {products.length === 0 && (
+                  <p className="text-[11px] text-danger-500 mt-1">No products found. Add one in Product Master first.</p>
+                )}
               </div>
               <div className="form-group !mb-0">
                 <label className="form-label">Quantity <span className="text-danger-500">*</span></label>
@@ -157,21 +175,21 @@ const SampleModal = ({ item, products, onSave, onClose }) => {
               </div>
               <div className="form-group !mb-0">
                 <label className="form-label">Sample Ordered</label>
-                <select className="form-select" value={form.sampleOrdered} onChange={e=>set('sampleOrdered',e.target.value)}>
+                <select className="form-select" value={form.sample_ordered} onChange={e=>set('sample_ordered',e.target.value)}>
                   <option value="No">No</option>
                   <option value="Yes">Yes</option>
                 </select>
               </div>
               <div className="form-group !mb-0">
                 <label className="form-label">Sample Shipped</label>
-                <select className="form-select" value={form.sampleShipped} onChange={e=>set('sampleShipped',e.target.value)}>
+                <select className="form-select" value={form.sample_shipped} onChange={e=>set('sample_shipped',e.target.value)}>
                   <option value="No">No</option>
                   <option value="Yes">Yes</option>
                 </select>
               </div>
               <div className="form-group !mb-0">
                 <label className="form-label">Order Placed</label>
-                <select className="form-select" value={form.orderPlaced} onChange={e=>set('orderPlaced',e.target.value)}>
+                <select className="form-select" value={form.order_placed} onChange={e=>set('order_placed',e.target.value)}>
                   <option value="No">No</option>
                   <option value="Yes">Yes</option>
                 </select>
@@ -191,7 +209,7 @@ const SampleModal = ({ item, products, onSave, onClose }) => {
   );
 };
 
-const ViewModal = ({ item, product, onClose }) => (
+const ViewModal = ({ item, customerName, onClose }) => (
   <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
     <div className="modal-box w-full !max-w-lg">
       <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
@@ -200,15 +218,15 @@ const ViewModal = ({ item, product, onClose }) => (
       </div>
       <div className="px-6 py-4 space-y-3 overflow-y-auto" style={{ maxHeight:'calc(90vh - 120px)' }}>
         {[
-          { label:'Enquiry ID',   value:item.enquiryId,   icon:D.id    },
-          { label:'Customer ID',  value:item.customerId,  icon:D.user  },
-          { label:'Enquired On',  value:format(new Date(item.enquiredOn),'dd MMM yyyy'), icon:D.calendar },
-          { label:'Product Name', value:product?.name || '—', icon:D.box },
-          { label:'Quantity',     value:(String(item.quantity)), icon:D.box },
-          { label:'Responded',    value:item.responded,    icon:D.envelope },
-          { label:'Sample Ordered', value:item.sampleOrdered, icon:D.box },
-          { label:'Sample Shipped', value:item.sampleShipped, icon:D.box },
-          { label:'Order Placed', value:item.orderPlaced, icon:D.check },
+          { label:'Enquiry ID',     value:item.enquiry_id,   icon:D.box     },
+          { label:'Customer',       value:customerName ? `${customerName} (#${item.customer_id})` : `#${item.customer_id}`, icon:D.user },
+          { label:'Enquired On',    value:item.enquired_on ? format(new Date(item.enquired_on),'dd MMM yyyy') : '—', icon:D.calendar },
+          { label:'Product Name',   value:item.product_name || '—', icon:D.box },
+          { label:'Quantity',      value:String(item.quantity ?? ''), icon:D.box },
+          { label:'Responded',     value:item.responded,      icon:D.envelope },
+          { label:'Sample Ordered', value:item.sample_ordered, icon:D.box },
+          { label:'Sample Shipped', value:item.sample_shipped, icon:D.box },
+          { label:'Order Placed',  value:item.order_placed,   icon:D.check },
         ].map(({ label, value, icon }) => (
           <div key={label} className="flex items-start gap-3 py-2 border-b border-surface-100 last:border-0">
             <div className="w-7 h-7 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -221,9 +239,11 @@ const ViewModal = ({ item, product, onClose }) => (
           </div>
         ))}
         <div className="flex items-center justify-between pt-2">
-          <span className="text-xs text-primary-300">Created: {format(new Date(item.createdAt),'dd MMM yyyy, hh:mm a')}</span>
-          {item.updatedAt !== item.createdAt && (
-            <span className="text-xs text-primary-300">Updated: {format(new Date(item.updatedAt),'dd MMM yyyy, hh:mm a')}</span>
+          <span className="text-xs text-primary-300">
+            Created: {item.created_at ? format(new Date(item.created_at),'dd MMM yyyy, hh:mm a') : '—'}
+          </span>
+          {item.updated_at && item.updated_at !== item.created_at && (
+            <span className="text-xs text-primary-300">Updated: {format(new Date(item.updated_at),'dd MMM yyyy, hh:mm a')}</span>
           )}
         </div>
       </div>
@@ -234,55 +254,119 @@ const ViewModal = ({ item, product, onClose }) => (
 
 // ─── Main Page ────────────────────────────────
 const SampleEnquiries = () => {
-  const [items,    setItems]    = useState([]);
-  const [products, setProducts] = useState([]);
-  const [search,   setSearch]   = useState('');
-  const [modal,    setModal]    = useState(null);
-  const [viewItem, setViewItem] = useState(null);
-  const [confirm,  setConfirm]  = useState(null);
+  const [items,      setItems]      = useState([]);
+  const [customers,  setCustomers]  = useState([]);
+  const [products,   setProducts]   = useState([]);
+  const [loading,     setLoading]     = useState(false);
+  const [fetchError,  setFetchError]  = useState('');
+  const [search,      setSearch]      = useState('');
+  const [modal,       setModal]       = useState(null);
+  const [viewItem,    setViewItem]    = useState(null);
+  const [confirm,     setConfirm]     = useState(null);
 
-  useEffect(() => {
-    setProducts(readLS(KEY_PRODUCTS));
-    setItems(readLS(KEY_SAMPLES));
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    setFetchError('');
+    try {
+      const res = await Api.get('/sample/sample-enquirylist');
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      setItems([...list].sort((a, b) => Number(a.enquiry_id ?? 0) - Number(b.enquiry_id ?? 0)));
+    } catch (err) {
+      setFetchError(err?.response?.data?.message || 'Failed to load. The server may be restarting.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const persist = (data) => { setItems(data); writeLS(KEY_SAMPLES, data); };
-
-  const getProductName = (id) => products.find(p => p.id === id)?.name || '—';
-
-  const handleSave = (form) => {
-    if (modal === 'add') {
-      persist([...items, { ...form, createdAt:nowISO(), updatedAt:nowISO() }]);
-      toast.success('Sample enquiry added.');
-    } else {
-      persist(items.map(i => i.enquiryId===modal.enquiryId ? { ...i, ...form, updatedAt:nowISO() } : i));
-      toast.success('Sample enquiry updated.');
-    addActivity('Sample enquiry updated', 'enquiry');
+  const fetchCustomers = useCallback(async () => {
+    try {
+      const res = await Api.get('/customer/customerlist');
+      setCustomers(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to load customers.');
     }
-    setModal(null);
+  }, []);
+
+  const fetchProducts = useCallback(async () => {
+    try {
+      const res = await Api.get('/product/productlist');
+      setProducts(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to load products.');
+    }
+  }, []);
+
+  useEffect(() => { fetchItems(); fetchCustomers(); fetchProducts(); }, [fetchItems, fetchCustomers, fetchProducts]);
+
+  const nextEnquiryId = useMemo(
+    () => items.reduce((max, i) => Math.max(max, Number(i.enquiry_id) || 0), 0) + 1,
+    [items]
+  );
+
+  const getCustomerName = (id) => customers.find(c => String(c.id) === String(id))?.customer_name || '';
+
+  const handleCreate = async (form) => {
+    try {
+      const res = await Api.post('/sample/sample-enquirycreate', form);
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to add sample enquiry.'); return; }
+      toast.success('Sample enquiry added.');
+      setModal(null);
+      fetchItems();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to add sample enquiry.');
+    }
   };
 
-  const handleDelete = (id) => { persist(items.filter(i => i.enquiryId!==id)); toast.success('Sample enquiry deleted.');
-    addActivity('Sample enquiry deleted', 'enquiry'); };
+  const handleUpdate = async (form) => {
+    try {
+      const res = await Api.post('/sample/sample-enquiryupdate', form);
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to update sample enquiry.'); return; }
+      toast.success('Sample enquiry updated.');
+      setModal(null);
+      fetchItems();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to update sample enquiry.');
+    }
+  };
 
-  const handleDone = (id) => {
-    persist(items.map(i => i.enquiryId===id ? { ...i, orderPlaced:'Yes' } : i));
-    toast.success('Marked as done (Order Placed = Yes).');
+  const handleSave = (form) => (modal === 'add' ? handleCreate(form) : handleUpdate(form));
+
+  const handleDelete = async (enquiryId) => {
+    try {
+      const res = await Api.post('/sample/sample-enquirydelete', { enquiry_id: enquiryId });
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to delete sample enquiry.'); return; }
+      toast.success('Sample enquiry deleted.');
+      fetchItems();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete sample enquiry.');
+    }
+  };
+
+  const handleDone = async (item) => {
+    try {
+      const res = await Api.post('/sample/sample-enquiryupdate', { ...item, order_placed: 'Yes' });
+      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to update.'); return; }
+      toast.success('Marked as done (Order Placed = Yes).');
+      fetchItems();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to update.');
+    }
   };
 
   const filtered = useMemo(() => {
     const t = search.trim().toLowerCase();
     if (!t) return items;
     return items.filter(i =>
-      i.enquiryId?.toLowerCase().includes(t) || i.customerId?.toLowerCase().includes(t) ||
-      getProductName(i.productId)?.toLowerCase().includes(t)
+      String(i.enquiry_id).includes(t) ||
+      String(i.customer_id).includes(t) ||
+      (i.product_name || '').toLowerCase().includes(t)
     );
-  }, [items, search, products]);
+  }, [items, search]);
 
   const totalCount = items.length;
-  const todayCount  = items.filter(i => isToday(new Date(i.enquiredOn))).length;
-  const weekCount   = items.filter(i => isThisWeek(new Date(i.enquiredOn),{weekStartsOn:1})).length;
-  const doneCount   = items.filter(i => i.orderPlaced==='Yes').length;
+  const todayCount  = items.filter(i => i.enquired_on && isToday(new Date(i.enquired_on))).length;
+  const weekCount   = items.filter(i => i.enquired_on && isThisWeek(new Date(i.enquired_on), { weekStartsOn: 1 })).length;
+  const doneCount   = items.filter(i => i.order_placed === 'Yes').length;
 
   return (
     <div className="page-container">
@@ -292,6 +376,10 @@ const SampleEnquiries = () => {
           <p className="text-primary-400 text-sm mt-0.5">Manage all sample enquiry submissions.</p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button onClick={fetchItems} disabled={loading} className="btn-outline" title="Refresh list">
+            <Ic d={D.refresh} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
           <button onClick={()=>setModal('add')} className="btn-primary w-full sm:w-auto">
             <Ic d={D.add} /><span>Add Enquiry</span>
           </button>
@@ -334,7 +422,22 @@ const SampleEnquiries = () => {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={13} className="text-center py-16">
+                    <div className="flex items-center justify-center gap-2 text-primary-400">
+                      <div className="spinner !w-5 !h-5" />
+                      <span>Loading sample enquiries…</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : fetchError ? (
+                <tr>
+                  <td colSpan={13}>
+                    <RetryBlock message={fetchError} onRetry={fetchItems} colSpan={13} />
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr><td colSpan={13} className="text-center py-16">
                   <div className="flex flex-col items-center gap-3 text-primary-300">
                     <div className="w-14 h-14 rounded-2xl bg-surface-100 flex items-center justify-center"><Ic d={D.box} className="w-7 h-7" /></div>
@@ -342,31 +445,31 @@ const SampleEnquiries = () => {
                   </div>
                 </td></tr>
               ) : filtered.map((item, idx) => (
-                <tr key={item.enquiryId} className={item.orderPlaced==='Yes' ? 'opacity-60' : ''}>
+                <tr key={item.enquiry_id} className={item.order_placed==='Yes' ? 'opacity-60' : ''}>
                   <td className="text-primary-400 text-xs font-mono">{idx+1}</td>
-                  <td><span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">{item.enquiryId}</span></td>
-                  <td><span className="text-primary-700 text-sm">{item.customerId}</span></td>
-                  <td className="text-primary-400 text-xs whitespace-nowrap">{format(new Date(item.enquiredOn),'dd MMM yyyy')}</td>
-                  <td><span className="font-medium text-primary-700">{getProductName(item.productId)}</span></td>
+                  <td><span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">{item.enquiry_id}</span></td>
+                  <td><span className="text-primary-700 text-sm">{getCustomerName(item.customer_id) || `#${item.customer_id}`}</span></td>
+                  <td className="text-primary-400 text-xs whitespace-nowrap">{item.enquired_on ? format(new Date(item.enquired_on),'dd MMM yyyy') : '—'}</td>
+                  <td><span className="font-medium text-primary-700">{item.product_name || '—'}</span></td>
                   <td><span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 text-accent-600 text-xs font-semibold">{item.quantity}</span></td>
                   <td><StatusBadge text={item.responded} /></td>
-                  <td><StatusBadge text={item.sampleOrdered} /></td>
-                  <td><StatusBadge text={item.sampleShipped} /></td>
+                  <td><StatusBadge text={item.sample_ordered} /></td>
+                  <td><StatusBadge text={item.sample_shipped} /></td>
                   <td>
-                    {item.orderPlaced==='Yes'
+                    {item.order_placed==='Yes'
                       ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-success-50 text-success-600 text-xs font-semibold"><Ic d={D.check} className="w-3 h-3" />Yes</span>
                       : <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-danger-50 text-danger-600 text-xs font-semibold">No</span>
                     }
                   </td>
-                  <td className="text-primary-400 text-xs whitespace-nowrap">{format(new Date(item.createdAt),'dd MMM yyyy')}</td>
-                  <td className="text-primary-400 text-xs whitespace-nowrap">{format(new Date(item.updatedAt),'dd MMM yyyy')}</td>
+                  <td className="text-primary-400 text-xs whitespace-nowrap">{item.created_at ? format(new Date(item.created_at),'dd MMM yyyy') : '—'}</td>
+                  <td className="text-primary-400 text-xs whitespace-nowrap">{item.updated_at ? format(new Date(item.updated_at),'dd MMM yyyy') : '—'}</td>
                   <td>
                     <div className="flex items-center justify-center gap-1 flex-wrap">
                       <button onClick={()=>setViewItem(item)} className="btn-icon text-info-500 hover:text-info-600 hover:bg-info-50" title="View"><Ic d={D.eye} /></button>
                       <button onClick={()=>setModal(item)} className="btn-icon text-primary-400 hover:text-primary-600 hover:bg-primary-50" title="Edit"><Ic d={D.edit} /></button>
-                      <button onClick={()=>setConfirm({ title:'Delete Enquiry', message:`Delete sample enquiry "${item.enquiryId}"?`, onConfirm:()=>handleDelete(item.enquiryId) })} className="btn-icon text-danger-400 hover:text-danger-600 hover:bg-danger-50" title="Delete"><Ic d={D.trash} /></button>
-                      {item.orderPlaced!=='Yes' && (
-                        <button onClick={()=>setConfirm({ title:'Mark as Done', message:`Mark "${item.enquiryId}" as done and set "Order Placed" to Yes?`, onConfirm:()=>handleDone(item.enquiryId) })} className="btn-icon text-success-500 hover:text-success-600 hover:bg-success-50" title="Mark as Done"><Ic d={D.done} /></button>
+                      <button onClick={()=>setConfirm({ title:'Delete Enquiry', message:`Delete sample enquiry #${item.enquiry_id}?`, onConfirm:()=>handleDelete(item.enquiry_id) })} className="btn-icon text-danger-400 hover:text-danger-600 hover:bg-danger-50" title="Delete"><Ic d={D.trash} /></button>
+                      {item.order_placed!=='Yes' && (
+                        <button onClick={()=>setConfirm({ title:'Mark as Done', message:`Mark enquiry #${item.enquiry_id} as done and set "Order Placed" to Yes?`, onConfirm:()=>handleDone(item) })} className="btn-icon text-success-500 hover:text-success-600 hover:bg-success-50" title="Mark as Done"><Ic d={D.done} /></button>
                       )}
                     </div>
                   </td>
@@ -375,15 +478,24 @@ const SampleEnquiries = () => {
             </tbody>
           </table>
         </div>
-        {filtered.length > 0 && (
+        {!loading && !fetchError && filtered.length > 0 && (
           <div className="px-4 py-3 border-t border-surface-100 text-xs text-primary-400">
             Showing <span className="font-medium text-primary-600">{filtered.length}</span> of <span className="font-medium text-primary-600">{items.length}</span> enquiries
           </div>
         )}
       </div>
 
-      {(modal==='add'||(modal&&modal.enquiryId)) && <SampleModal item={modal==='add'?null:modal} products={products} onSave={handleSave} onClose={()=>setModal(null)} />}
-      {viewItem && <ViewModal item={viewItem} product={products.find(p=>p.id===viewItem.productId)} onClose={()=>setViewItem(null)} />}
+      {(modal==='add'||(modal&&modal.enquiry_id)) && (
+        <SampleModal
+          item={modal==='add'?null:modal}
+          nextEnquiryId={nextEnquiryId}
+          customers={customers}
+          products={products}
+          onSave={handleSave}
+          onClose={()=>setModal(null)}
+        />
+      )}
+      {viewItem && <ViewModal item={viewItem} customerName={getCustomerName(viewItem.customer_id)} onClose={()=>setViewItem(null)} />}
       {confirm  && <ConfirmationModal open={!!confirm} onClose={()=>setConfirm(null)} onConfirm={confirm.onConfirm} title={confirm.title} message={confirm.message} />}
     </div>
   );

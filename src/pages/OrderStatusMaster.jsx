@@ -8,7 +8,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { ConfirmationModal } from '../components/ui';
 import toast from 'react-hot-toast';
-import { addActivity } from '../components/Header';
 
 const newId = () => 'OS-' + Math.random().toString(36).slice(2, 8).toUpperCase();
 const nowISO = () => new Date().toISOString();
@@ -170,21 +169,18 @@ const OrderStatusMaster = () => {
     if (modal === 'add') {
       persist([...items, { ...form, createdAt:nowISO(), updatedAt:nowISO() }]);
       toast.success('Order status added.');
-      addActivity(`Order status added: ${form.statusName || form.statusCode}`, 'order');
     } else {
       persist(items.map(i => i.statusId===modal.statusId ? { ...i, ...form, updatedAt:nowISO() } : i));
       toast.success('Order status updated.');
-      addActivity(`Order status updated: ${form.statusName || form.statusCode}`, 'order');
     }
     setModal(null);
   };
 
-  const handleDelete = (id) => { persist(items.filter(i => i.statusId!==id)); toast.success('Order status deleted.'); addActivity('Order status deleted', 'order'); };
+  const handleDelete = (id) => { persist(items.filter(i => i.statusId!==id)); toast.success('Order status deleted.'); };
 
   const handleDone = (id) => {
     persist(items.map(i => i.statusId===id ? { ...i, isDone:true, updatedAt:nowISO() } : i));
     toast.success('Marked as done.');
-    addActivity('Order status marked as done', 'order');
   };
 
   const filtered = useMemo(() => {

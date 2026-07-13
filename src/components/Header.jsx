@@ -1,12 +1,20 @@
 /**
  * components/Header.jsx — Top Navigation Header
- * Static (sticky) header, notifications with mark-as-read (tick icon, deletes on click),
- * recent activities fed via RecentActivitiesContext (or prop).
+ * Static (sticky) header, notifications with mark-as-read (tick icon, deletes on click).
+ *
+ * Notifications are real recent database activity, not mocked data —
+ * GET /notifications/recent-activity (see itemMasterController.getRecentActivity),
+ * which merges recent quote/contact/general/sample enquiries, orders, products,
+ * and customers straight from their own created/updated timestamps, plus
+ * deletions recorded in activity_log (rows that no longer exist to read
+ * timestamps from).
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
+import Api from '../utils/Api';
 
 const Icon = ({ path, className = 'w-5 h-5' }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -14,26 +22,29 @@ const Icon = ({ path, className = 'w-5 h-5' }) => (
   </svg>
 );
 
-// Global recent activities store (module-level so any page can push to it)
-export const recentActivities = [];
-export const addActivity = (text, type = 'update') => {
-  recentActivities.unshift({
-    id: Date.now() + Math.random(),
-    type,
-    text,
-    time: 'Just now',
-    unread: true,
-  });
-  if (recentActivities.length > 20) recentActivities.pop();
+// Buckets the backend's specific action_type values down to the small set
+// of icon/color styles the panel already has.
+const TYPE_BUCKET = {
+  quote_created:          'enquiry',
+  contact_created:        'enquiry',
+  enquiry_created:        'enquiry',
+  sample_enquiry_created: 'enquiry',
+  order_created:          'order',
+  order_deleted:          'order',
+  product_created:        'product',
+  product_updated:        'product',
+  product_deleted:        'product',
+  customer_created:       'update',
 };
 
-const INITIAL_NOTIFICATIONS = [
-  { id: 1, type: 'enquiry', text: 'New enquiry from VIP customer', time: '5m ago', unread: true },
-  { id: 2, type: 'product', text: 'New product added: Premium Shirt', time: '1h ago', unread: true },
-  { id: 3, type: 'order',   text: 'Order DEL-2024-001 completed',   time: '3h ago', unread: false },
-  { id: 4, type: 'enquiry', text: 'Enquiry QUO-123 marked as done', time: '4h ago', unread: false },
-  { id: 5, type: 'product', text: 'Product SKU-456 updated',        time: '6h ago', unread: false },
-];
+const DISMISSED_KEY = 'yogo_dismissed_notifications';
+const readDismissed = () => { try { return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY)) || []); } catch { return new Set(); } };
+const writeDismissed = (set) => localStorage.setItem(DISMISSED_KEY, JSON.stringify([...set]));
+
+// Stable per-notification key — the backend doesn't assign one row an id
+// across its UNION of different tables, so derive one from the fields that
+// together uniquely identify a single activity.
+const notificationKey = (n) => `${n.action_type}|${n.reference_id}|${n.activity_time}`;
 
 const Header = ({ onMenuToggle }) => {
   const { admin, logout } = useAuth();
@@ -41,53 +52,60 @@ const Header = ({ onMenuToggle }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(readDismissed);
   const profileRef = useRef(null);
   const notifRef = useRef(null);
 
-  // Merge recent activities every time the panel opens or new ones arrive
+  // Pull real recent activity from the backend (not mocked data) — see
+  // itemMasterController.getRecentActivity for what feeds this.
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await Api.get('/notifications/recent-activity');
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      setNotifications(list.map(n => ({
+        key:  notificationKey(n),
+        type: TYPE_BUCKET[n.action_type] || 'update',
+        text: n.description,
+        reference: n.reference_id,
+        time: n.activity_time ? formatDistanceToNow(new Date(n.activity_time), { addSuffix: true }) : '',
+      })));
+    } catch {
+      // Silent — the bell just shows whatever was last successfully loaded.
+    }
+  }, []);
+
   useEffect(() => {
-    const merge = () => {
-      if (recentActivities.length > 0) {
-        setNotifications(prev => {
-          const existingIds = new Set(prev.map(n => n.id));
-          const newOnes = recentActivities.filter(a => !existingIds.has(a.id));
-          return newOnes.length ? [...newOnes, ...prev] : prev;
-        });
-      }
-    };
-    merge();
-    // Poll every 2s so notifications appear even if panel stays open
-    const timer = setInterval(merge, 2000);
+    fetchNotifications();
+    // Poll periodically so the badge stays current even if the panel stays closed.
+    const timer = setInterval(fetchNotifications, 30000);
     return () => clearInterval(timer);
-  }, [notifOpen]);
+  }, [fetchNotifications]);
 
-  // Also sync new activities into badge count when panel is closed
-  useEffect(() => {
-    if (notifOpen) return; // panel open = already merging via other effect
-    const timer = setInterval(() => {
-      if (recentActivities.length > 0) {
-        setNotifications(prev => {
-          const existingIds = new Set(prev.map(n => n.id));
-          const newOnes = recentActivities.filter(a => !existingIds.has(a.id));
-          return newOnes.length ? [...newOnes, ...prev] : prev;
-        });
-      }
-    }, 1500);
-    return () => clearInterval(timer);
-  }, [notifOpen]);
+  // Refresh the instant the panel is opened, so it's not up to 30s stale.
+  useEffect(() => { if (notifOpen) fetchNotifications(); }, [notifOpen, fetchNotifications]);
 
-  const unreadCount = notifications.filter(n => n.unread).length;
+  const visibleNotifications = notifications.filter(n => !dismissed.has(n.key));
+  const unreadCount = visibleNotifications.length;
 
-  // Mark as read = delete notification
-  const deleteNotification = (id, e) => {
+  // Mark as read = dismiss locally (persisted so it stays dismissed after reload/re-poll)
+  const deleteNotification = (key, e) => {
     e.stopPropagation();
-    setNotifications(prev => prev.filter(n => n.id !== id));
+    setDismissed(prev => {
+      const next = new Set(prev).add(key);
+      writeDismissed(next);
+      return next;
+    });
   };
 
   const markAllAsRead = () => {
-    setNotifications([]);
+    setDismissed(prev => {
+      const next = new Set(prev);
+      notifications.forEach(n => next.add(n.key));
+      writeDismissed(next);
+      return next;
+    });
   };
 
   const getIconForType = (type) => {
@@ -188,7 +206,7 @@ const Header = ({ onMenuToggle }) => {
                 <div className="px-4 py-3 border-b border-surface-100 flex items-center justify-between flex-shrink-0">
                   <span className="font-semibold text-primary-600 text-sm">Notifications</span>
                   <div className="flex items-center gap-3">
-                    {notifications.length > 0 && (
+                    {visibleNotifications.length > 0 && (
                       <button onClick={markAllAsRead} className="text-xs text-primary-500 hover:text-primary-700 font-medium">
                         Clear all
                       </button>
@@ -205,23 +223,25 @@ const Header = ({ onMenuToggle }) => {
 
                 {/* Notification list */}
                 <div className="divide-y divide-surface-50 overflow-y-auto flex-1">
-                  {notifications.length === 0 ? (
+                  {visibleNotifications.length === 0 ? (
                     <div className="px-4 py-10 text-center text-primary-300">
                       <p className="text-sm">No notifications</p>
                     </div>
-                  ) : notifications.map(n => (
-                    <div key={n.id} className={`px-4 py-3 hover:bg-surface-50 transition-colors ${n.unread ? 'bg-primary-50/50' : ''}`}>
+                  ) : visibleNotifications.map(n => (
+                    <div key={n.key} className="px-4 py-3 hover:bg-surface-50 transition-colors bg-primary-50/50">
                       <div className="flex items-start gap-3">
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${getTypeColor(n.type)}`}>
                           <Icon path={getIconForType(n.type)} className="w-4 h-4" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-primary-700">{n.text}</p>
-                          <p className="text-xs text-primary-300 mt-1">{n.time}</p>
+                          <p className="text-xs text-primary-300 mt-1">
+                            {n.time}{n.reference ? ` · ${n.reference}` : ''}
+                          </p>
                         </div>
-                        {/* Mark as read = tick icon = deletes notification */}
+                        {/* Mark as read = tick icon = dismisses notification */}
                         <button
-                          onClick={(e) => deleteNotification(n.id, e)}
+                          onClick={(e) => deleteNotification(n.key, e)}
                           className="ml-1 flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-success-50 text-primary-300 hover:text-success-600 transition-colors"
                           title="Mark as read"
                         >

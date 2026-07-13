@@ -8,10 +8,12 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { format, isToday, isThisWeek } from 'date-fns';
 import { ConfirmationModal, RetryBlock } from '../components/ui';
 import toast from 'react-hot-toast';
 import Api from '../utils/Api';
+import { useRowHighlight, HIGHLIGHT_STYLE } from '../hooks/useRowHighlight';
 
 // ─── SVG Icon helper ──────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -159,6 +161,16 @@ const ContactEnquiries = () => {
   const [search,    setSearch]    = useState('');
   const [viewItem,  setViewItem]  = useState(null);
   const [confirm,   setConfirm]   = useState(null);
+  const [searchParams] = useSearchParams();
+
+  // A dashboard preview-card deep link always needs the full list visible —
+  // clear any stale search text so the target row isn't filtered out.
+  useEffect(() => {
+    if (searchParams.get('highlight')) setSearch('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const highlightedId = useRowHighlight(enquiries, loading);
 
   // ── Fetch list ──────────────────────────────
   const fetchEnquiries = useCallback(async () => {
@@ -292,6 +304,7 @@ const ContactEnquiries = () => {
             <thead>
               <tr>
                 <th className="w-10">S.No</th>
+                <th>Contact Request ID</th>
                 <th>First Name</th>
                 <th>Last Name</th>
                 <th>Email ID</th>
@@ -307,7 +320,7 @@ const ContactEnquiries = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-16">
+                  <td colSpan={12} className="text-center py-16">
                     <div className="flex items-center justify-center gap-2 text-primary-400">
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading enquiries…</span>
@@ -316,13 +329,13 @@ const ContactEnquiries = () => {
                 </tr>
               ) : fetchError ? (
                 <tr>
-                  <td colSpan={11}>
-                    <RetryBlock message={fetchError} onRetry={fetchEnquiries} colSpan={11} />
+                  <td colSpan={12}>
+                    <RetryBlock message={fetchError} onRetry={fetchEnquiries} colSpan={12} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-16">
+                  <td colSpan={12} className="text-center py-16">
                     <div className="flex flex-col items-center gap-3 text-primary-300">
                       <div className="w-14 h-14 rounded-2xl bg-surface-100 flex items-center justify-center">
                         <Ic d={D.inbox} className="w-7 h-7" />
@@ -337,6 +350,7 @@ const ContactEnquiries = () => {
                 </tr>
               ) : (
                 filtered.map((enq, idx) => {
+                  const requestId = enq.reference_number || '';
                   const firstName = enq.first_name   || enq.firstName  || '';
                   const lastName  = enq.last_name    || enq.lastName   || '';
                   const email     = enq.email_id     || enq.email      || '';
@@ -348,8 +362,18 @@ const ContactEnquiries = () => {
                   const isDone    = enq.status === 'Mark as Done' || enq.done === true;
 
                   return (
-                    <tr key={enq.id} className={isDone ? 'opacity-60' : ''}>
+                    <tr
+                      key={enq.id}
+                      data-row-id={enq.id}
+                      className={isDone ? 'opacity-60' : ''}
+                      style={highlightedId === String(enq.id) ? HIGHLIGHT_STYLE : undefined}
+                    >
                       <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
+                      <td>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">
+                          {requestId || '—'}
+                        </span>
+                      </td>
                       <td className="font-medium text-primary-700 text-sm">{firstName}</td>
                       <td className="text-primary-700 text-sm">{lastName}</td>
                       <td>
