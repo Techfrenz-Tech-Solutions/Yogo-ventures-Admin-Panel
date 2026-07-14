@@ -42,7 +42,6 @@ import CustomerMaster from './pages/CustomerMaster';
 import CountryMaster from './pages/CountryMaster';
 import OrderTracking from './pages/OrderTracking';
 import OrderStatusMaster from './pages/OrderStatusMaster';
-import OrderHistory from './pages/OrderHistory';
 
 // ─── Route Guards ──────────────────────────────
 const PrivateRoute = ({ children }) => {
@@ -96,7 +95,8 @@ const AppRouter = () => (
       <Route path="general-enquiries"   element={<GeneralEnquiries />} />
       <Route path="sample-enquiries"    element={<SampleEnquiries />} />
       <Route path="order-status-master" element={<OrderStatusMaster />} />
-      <Route path="order-history"       element={<OrderHistory />} />
+      {/* order-history was merged into order-tracking — keep the old URL working */}
+      <Route path="order-history"       element={<Navigate to="/order-tracking" replace />} />
       <Route path="order-tracking"      element={<OrderTracking />} />
       <Route path="customer-master"     element={<CustomerMaster />} />
       <Route path="categories"   element={<Categories />} />

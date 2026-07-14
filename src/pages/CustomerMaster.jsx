@@ -385,7 +385,7 @@ const CustomerMaster = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="w-10">S.No</th>
+                <th className="w-16">Customer ID</th>
                 <th>Customer Name</th>
                 <th>Email ID</th>
                 <th>Country</th>
@@ -427,9 +427,13 @@ const CustomerMaster = () => {
                   </td>
                 </tr>
               ) : (
-                filtered.map((cust, idx) => (
+                filtered.map((cust) => (
                   <tr key={cust.id}>
-                    <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
+                    <td>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">
+                        {(cust.customer_id && cust.customer_id.trim()) || cust.id || cust._id || '—'}
+                      </span>
+                    </td>
                     <td className="font-medium text-primary-700">{cust.customer_name}</td>
                     <td>
                       <a

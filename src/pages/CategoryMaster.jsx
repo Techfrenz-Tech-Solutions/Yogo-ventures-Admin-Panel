@@ -65,6 +65,26 @@ const CategoryModal = ({ category, onSave, onClose }) => {
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
+  // Prefill the next suggested category code on Add only — never on Edit,
+  // and never once the user has typed something into the field themselves
+  // (checked via the functional update, not a render-time value, so a
+  // slow response can't clobber what they've already typed).
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    Api.get('/category/categorynextcode')
+      .then(res => {
+        if (cancelled) return;
+        const suggested = res.data?.code;
+        if (suggested) {
+          setForm(prev => (prev.code ? prev : { ...prev, code: suggested }));
+        }
+      })
+      .catch(() => { /* leave the field empty — user can still type a code */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.code.trim()) { toast.error('Category code is required.'); return; }

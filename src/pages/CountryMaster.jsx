@@ -55,12 +55,18 @@ const StatCard = ({ label, value, iconPath, color }) => {
   );
 };
 
+// A phone dialing code must be "+" followed by 1-4 digits — e.g. "+91",
+// "+1", "+44". Rejects "91" (missing +), "++91" (double +), "+91abc"
+// (trailing non-digits) and empty/overlong values.
+const PHONE_CODE_PATTERN = /^\+[0-9]{1,4}$/;
+
 // ─── Add / Edit Modal ─────────────────────────
 const CountryModal = ({ country, onSave, onClose }) => {
   const isEdit = !!country;
   const [form, setForm] = useState({
     code: country?.country_code || country?.code || '',
     name: country?.country_name || country?.name || '',
+    phoneCode: country?.phone_code || '',
   });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
@@ -69,8 +75,14 @@ const CountryModal = ({ country, onSave, onClose }) => {
     e.preventDefault();
     if (!form.code.trim()) { toast.error('Country code is required.'); return; }
     if (!form.name.trim()) { toast.error('Country name is required.'); return; }
+    const phoneCode = form.phoneCode.trim();
+    if (!phoneCode) { toast.error('Phone code is required.'); return; }
+    if (!PHONE_CODE_PATTERN.test(phoneCode)) {
+      toast.error("Phone code must start with '+' followed by 1-4 digits only (e.g. +91).");
+      return;
+    }
     setSaving(true);
-    await onSave({ code: form.code.trim().toUpperCase(), name: form.name.trim() });
+    await onSave({ code: form.code.trim().toUpperCase(), name: form.name.trim(), phoneCode });
     setSaving(false);
   };
 
@@ -112,6 +124,22 @@ const CountryModal = ({ country, onSave, onClose }) => {
                 required
               />
             </div>
+            <div className="form-group !mb-0">
+              <label className="form-label">
+                Phone Code <span className="text-danger-500">*</span>
+              </label>
+              <input
+                className="form-input"
+                value={form.phoneCode}
+                onChange={e => set('phoneCode', e.target.value)}
+                placeholder="e.g. +91"
+                maxLength={10}
+                required
+              />
+              <p className="text-[11px] text-primary-300 mt-1">
+                Must start with "+" followed by digits only, e.g. +91, +1, +44.
+              </p>
+            </div>
           </div>
           <div className="flex justify-end gap-2 px-5 py-4 border-t border-surface-100 dark:border-primary-700">
             <button type="button" onClick={onClose} className="btn-outline">Cancel</button>
@@ -145,6 +173,7 @@ const ViewModal = ({ country, onClose }) => {
           {[
             { label: 'Country Code', value: country.country_code || country.code },
             { label: 'Country Name', value: country.country_name || country.name },
+            { label: 'Phone Code',   value: country.phone_code || '—' },
             {
               label: 'Created Date',
               value: createdAt ? format(new Date(createdAt), 'dd MMM yyyy, hh:mm a') : '—',
@@ -201,11 +230,12 @@ const CountryMaster = () => {
   useEffect(() => { fetchCountries(); }, [fetchCountries]);
 
   // ── Create ──────────────────────────────────
-  const handleCreate = async ({ code, name }) => {
+  const handleCreate = async ({ code, name, phoneCode }) => {
     try {
       await Api.post('/country/countrycreate', {
         country_code: code,
         country_name: name,
+        phone_code:   phoneCode,
       });
       toast.success('Country added successfully.');
       setModal(null);
@@ -216,12 +246,13 @@ const CountryMaster = () => {
   };
 
   // ── Update ──────────────────────────────────
-  const handleUpdate = async ({ code, name }) => {
+  const handleUpdate = async ({ code, name, phoneCode }) => {
     try {
       await Api.post('/country/countryupdate', {
         id:           modal?.id || modal?._id,
         country_code: code,
         country_name: name,
+        phone_code:   phoneCode,
       });
       toast.success('Country updated successfully.');
       setModal(null);
@@ -330,6 +361,7 @@ const CountryMaster = () => {
                 <th className="w-12">S.No</th>
                 <th>Country Code</th>
                 <th>Country Name</th>
+                <th>Phone Code</th>
                 <th>Created Date</th>
                 <th>Updated Date</th>
                 <th className="text-center">Actions</th>
@@ -338,7 +370,7 @@ const CountryMaster = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-16">
+                  <td colSpan={7} className="text-center py-16">
                     <div className="flex items-center justify-center gap-2 text-primary-400">
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading countries…</span>
@@ -346,10 +378,10 @@ const CountryMaster = () => {
                   </td>
                 </tr>
               ) : fetchError ? (
-                <RetryBlock message={fetchError} onRetry={fetchCountries} colSpan={6} />
+                <RetryBlock message={fetchError} onRetry={fetchCountries} colSpan={7} />
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-16 text-primary-300 dark:text-primary-500">
+                  <td colSpan={7} className="text-center py-16 text-primary-300 dark:text-primary-500">
                     {countries.length === 0
                       ? 'No countries yet. Click "Add Country" to create one.'
                       : 'No countries match your search.'}
@@ -359,6 +391,7 @@ const CountryMaster = () => {
                 filtered.map((country, idx) => {
                   const code      = country.country_code || country.code;
                   const name      = country.country_name || country.name;
+                  const phoneCode = country.phone_code;
                   const createdAt = country.created_date  || country.created_at  || country.createdAt;
                   const updatedAt = country.updated_date  || country.updated_at  || country.updatedAt;
 
@@ -371,6 +404,11 @@ const CountryMaster = () => {
                         </span>
                       </td>
                       <td className="font-medium text-primary-700 dark:text-surface-100">{name}</td>
+                      <td>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 dark:bg-primary-700 text-accent-600 dark:text-accent-300 text-xs font-mono font-medium">
+                          {phoneCode || '—'}
+                        </span>
+                      </td>
                       <td className="text-primary-400 dark:text-primary-400 text-xs whitespace-nowrap">
                         {createdAt ? format(new Date(createdAt), 'dd MMM yyyy') : '—'}
                       </td>

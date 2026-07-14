@@ -2,13 +2,20 @@
  * pages/ProductMaster.jsx — Product Master
  * Connected to live API endpoints via Api.js (axios instance).
  *
- * POST /product/productcreate  → create (multipart: index_image, image1-5)
- * GET  /product/productlist    → list
- * POST /product/productupdate  → update (multipart)
+ * POST /product/productcreate  → create (multipart: index_image, variation_images[])
+ * GET  /product/productlist    → list (each row includes variation_images: [{id,image_path,sort_order}])
+ * POST /product/productupdate  → update (multipart: index_image?, variation_images[]?, delete_image_ids?)
  * POST /product/productdelete  → delete
  *
  * Images are uploaded to the backend's /storage filesystem; only the
  * filename is stored in the DB, so the UI builds the full URL via storageUrl().
+ *
+ * Variation images are a dynamic list backed by the product_images table
+ * (one main image + any number of variation images — no fixed cap of 5).
+ * Each row is either an existing saved image (has `existingId`, a
+ * product_images.id) or a not-yet-uploaded new pick; removing an existing
+ * row queues its id for deletion (sent as delete_image_ids) rather than
+ * deleting anything client-side.
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -121,6 +128,14 @@ const ImageSlot = ({ label, value, onChange, onClear }) => {
 };
 
 // ─── Product Modal (Add / Edit) ───────────────
+const MAX_VARIATION_IMAGES = 20; // matches the backend's productImageFields cap
+
+// A variation row's `value` uses the same contract ImageSlot already
+// expects: '' (empty), a filename string (existing saved image), or
+// { file, preview } (a freshly picked, not-yet-uploaded file).
+let rowKeySeq = 0;
+const makeVarRow = (value = '', existingId = null) => ({ key: ++rowKeySeq, value, existingId });
+
 const EMPTY_FORM = {
   code:          '',
   name:          '',
@@ -128,14 +143,21 @@ const EMPTY_FORM = {
   subCategoryName: '',
   description:   '',
   indexImage:    '',
-  varImages:     ['', '', '', '', ''],
+  varImages:     [],
+  deletedImageIds: [],
 };
 
 const ProductModal = ({ product, categories, subCategories, onSave, onClose }) => {
   const isEdit = !!product;
 
-  const [form, setForm] = useState(() =>
-    product
+  const [form, setForm] = useState(() => {
+    const existingVarImages = Array.isArray(product?.variation_images)
+      ? [...product.variation_images]
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map(v => makeVarRow(v.image_path, v.id))
+      : [];
+
+    return product
       ? {
           code:            product.product_code        || '',
           name:            product.product_name        || '',
@@ -143,25 +165,81 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
           subCategoryName: product.sub_category_name    || '',
           description:     product.product_description  || '',
           indexImage:      product.index_image          || '',
-          varImages: [
-            product.image1 || '',
-            product.image2 || '',
-            product.image3 || '',
-            product.image4 || '',
-            product.image5 || '',
-          ],
+          // A product with no saved variation images still gets one empty
+          // slot to start from, same as a brand-new product.
+          varImages:       existingVarImages.length > 0 ? existingVarImages : [makeVarRow()],
+          deletedImageIds: [],
         }
-      : { ...EMPTY_FORM, varImages: ['', '', '', '', ''] }
-  );
+      : { ...EMPTY_FORM, varImages: [makeVarRow()] };
+  });
 
   const [saving, setSaving] = useState(false);
 
+  // Prefill the next suggested product code on Add only — never on Edit,
+  // and never once the user has typed something into the field themselves
+  // (checked via the functional update, not a render-time value, so a
+  // slow response can't clobber what they've already typed).
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    Api.get('/product/productnextcode')
+      .then(res => {
+        if (cancelled) return;
+        const suggested = res.data?.code;
+        if (suggested) {
+          setForm(prev => (prev.code ? prev : { ...prev, code: suggested }));
+        }
+      })
+      .catch(() => { /* leave the field empty — user can still type a code */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const set  = (k, v) => setForm(p => ({ ...p, [k]: v }));
-  const setVI = (i, v) => setForm(p => {
-    const next = [...p.varImages];
-    next[i] = v;
-    return { ...p, varImages: next };
-  });
+
+  // Sets a variation row's picked file/value — rejects an exact duplicate
+  // (same name + size) of a file already staged in another row.
+  const setVarImage = (i, v) => {
+    if (v && typeof v === 'object' && v.file) {
+      const isDuplicate = form.varImages.some((row, idx) =>
+        idx !== i && row.value && typeof row.value === 'object' &&
+        row.value.file.name === v.file.name && row.value.file.size === v.file.size
+      );
+      if (isDuplicate) {
+        toast.error('This image has already been added.');
+        return;
+      }
+    }
+    setForm(p => {
+      const next = [...p.varImages];
+      next[i] = { ...next[i], value: v };
+      return { ...p, varImages: next };
+    });
+  };
+
+  // Adding always appends a fresh empty slot for the user to fill in.
+  const addVarImageSlot = () => {
+    if (form.varImages.length >= MAX_VARIATION_IMAGES) {
+      toast.error(`You can add up to ${MAX_VARIATION_IMAGES} variation images.`);
+      return;
+    }
+    setForm(p => ({ ...p, varImages: [...p.varImages, makeVarRow()] }));
+  };
+
+  // Removing a row that represents an already-saved image queues its id
+  // for server-side deletion; removing a not-yet-uploaded/empty row is just
+  // a local no-op splice — nothing was ever saved for it.
+  const removeVarImageSlot = (i) => {
+    setForm(p => {
+      const row = p.varImages[i];
+      const next = p.varImages.filter((_, idx) => idx !== i);
+      return {
+        ...p,
+        varImages: next,
+        deletedImageIds: row.existingId ? [...p.deletedImageIds, row.existingId] : p.deletedImageIds,
+      };
+    });
+  };
 
   // filtered sub-categories based on chosen category
   const filteredSubs = useMemo(() =>
@@ -298,18 +376,41 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
               </div>
             </div>
 
-            {/* Row 5 — Variation Images */}
+            {/* Row 5 — Variation Images (dynamic — add as many as needed) */}
             <div>
-              <p className="form-label mb-2">Variation Images <span className="text-primary-300 font-normal text-xs">(up to 5)</span></p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="form-label !mb-0">
+                  Variation Images <span className="text-primary-300 font-normal text-xs">({form.varImages.length}/{MAX_VARIATION_IMAGES})</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={addVarImageSlot}
+                  className="btn-outline btn-sm !py-1 !px-2.5 text-xs gap-1"
+                  title="Add another variation image"
+                >
+                  <Ic d={D.add} className="w-3.5 h-3.5" />
+                  Add
+                </button>
+              </div>
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
-                {form.varImages.map((img, i) => (
-                  <ImageSlot
-                    key={i}
-                    label={`Variation ${i + 1}`}
-                    value={img}
-                    onChange={v => setVI(i, v)}
-                    onClear={() => setVI(i, '')}
-                  />
+                {form.varImages.map((row, i) => (
+                  <div key={row.key} className="flex flex-col gap-1.5">
+                    <ImageSlot
+                      label={`Variation ${i + 1}`}
+                      value={row.value}
+                      onChange={v => setVarImage(i, v)}
+                      onClear={() => setVarImage(i, '')}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeVarImageSlot(i)}
+                      className="btn-outline btn-sm !py-1 text-xs gap-1 text-danger-500 border-danger-200 hover:bg-danger-50 justify-center"
+                      title="Remove this variation image"
+                    >
+                      <Ic d={D.trash} className="w-3.5 h-3.5" />
+                      Remove
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -333,7 +434,9 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
 
 // ─── View Modal ───────────────────────────────
 const ViewModal = ({ product, onClose }) => {
-  const varImages = [product.image1, product.image2, product.image3, product.image4, product.image5].filter(Boolean);
+  const varImages = Array.isArray(product.variation_images)
+    ? [...product.variation_images].sort((a, b) => a.sort_order - b.sort_order).map(v => v.image_path)
+    : [];
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box w-full !max-w-lg">
@@ -453,10 +556,15 @@ const ProductMaster = () => {
     if (form.indexImage && typeof form.indexImage === 'object') {
       fd.append('index_image', form.indexImage.file);
     }
-    const varFields = ['image1', 'image2', 'image3', 'image4', 'image5'];
-    form.varImages.forEach((img, i) => {
-      if (img && typeof img === 'object') fd.append(varFields[i], img.file);
+    // Only rows with a freshly picked file are actual uploads — an existing
+    // saved image (plain filename string) needs no re-upload, and an empty
+    // unfilled slot contributes nothing (never submitted as an image).
+    form.varImages.forEach((row) => {
+      if (row.value && typeof row.value === 'object') fd.append('variation_images', row.value.file);
     });
+    if (form.deletedImageIds?.length > 0) {
+      fd.append('delete_image_ids', JSON.stringify(form.deletedImageIds));
+    }
     return fd;
   };
 

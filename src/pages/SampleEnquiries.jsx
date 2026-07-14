@@ -39,6 +39,17 @@ const D = {
   refresh:    'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
 };
 
+// Formats the Customer column as "Name (id)", falling back safely when
+// either piece is missing — never the enquiry's own row index/enquiry_id.
+const formatCustomerDisplay = (name, id) => {
+  const hasName = !!(name && String(name).trim());
+  const hasId   = id !== null && id !== undefined && String(id).trim() !== '';
+  if (hasName && hasId) return `${name} (${id})`;
+  if (hasId)            return `Unknown Customer (${id})`;
+  if (hasName)          return name;
+  return '—';
+};
+
 // ─── Stat Card ────────────────────────────────
 const StatCard = ({ label, value, iconPath, color, sub }) => {
   const map = {
@@ -219,7 +230,7 @@ const ViewModal = ({ item, customerName, onClose }) => (
       <div className="px-6 py-4 space-y-3 overflow-y-auto" style={{ maxHeight:'calc(90vh - 120px)' }}>
         {[
           { label:'Enquiry ID',     value:item.enquiry_id,   icon:D.box     },
-          { label:'Customer',       value:customerName ? `${customerName} (#${item.customer_id})` : `#${item.customer_id}`, icon:D.user },
+          { label:'Customer',       value:formatCustomerDisplay(item.customer_name || customerName, item.customer_id), icon:D.user },
           { label:'Enquired On',    value:item.enquired_on ? format(new Date(item.enquired_on),'dd MMM yyyy') : '—', icon:D.calendar },
           { label:'Product Name',   value:item.product_name || '—', icon:D.box },
           { label:'Quantity',      value:String(item.quantity ?? ''), icon:D.box },
@@ -448,7 +459,7 @@ const SampleEnquiries = () => {
                 <tr key={item.enquiry_id} className={item.order_placed==='Yes' ? 'opacity-60' : ''}>
                   <td className="text-primary-400 text-xs font-mono">{idx+1}</td>
                   <td><span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">{item.enquiry_id}</span></td>
-                  <td><span className="text-primary-700 text-sm">{getCustomerName(item.customer_id) || `#${item.customer_id}`}</span></td>
+                  <td><span className="text-primary-700 text-sm">{formatCustomerDisplay(item.customer_name || getCustomerName(item.customer_id), item.customer_id)}</span></td>
                   <td className="text-primary-400 text-xs whitespace-nowrap">{item.enquired_on ? format(new Date(item.enquired_on),'dd MMM yyyy') : '—'}</td>
                   <td><span className="font-medium text-primary-700">{item.product_name || '—'}</span></td>
                   <td><span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 text-accent-600 text-xs font-semibold">{item.quantity}</span></td>
