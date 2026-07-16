@@ -4,13 +4,11 @@
  * Fixes:
  *  - Local loading state is fully self-contained (does not depend on AuthContext.loading)
  *  - navigate() called correctly after login resolves
- *  - Demo mode hint shown below form
  */
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { isDemoMode } from '../services/api';
 
 const LoginPage = () => {
   const { login } = useAuth();
@@ -53,13 +51,6 @@ const LoginPage = () => {
       <div className="mb-8">
         <h2 className="font-heading text-2xl font-bold text-primary-600">Welcome back</h2>
         <p className="text-primary-400 text-sm mt-1.5">Sign in to your admin dashboard</p>
-      </div>
-
-      {/* Credentials hint */}
-      <div className="mb-5 bg-accent-100 border border-accent-300 rounded-xl px-4 py-3 text-sm text-primary-600">
-        <strong>Credentials</strong> — Email:&nbsp;
-        <code className="bg-white/60 px-1 rounded">admin@yogoventures.com</code>&nbsp;/ Password:&nbsp;
-        <code className="bg-white/60 px-1 rounded">Yogo@123</code>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5" noValidate>
