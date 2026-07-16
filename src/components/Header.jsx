@@ -15,6 +15,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import Api from '../utils/Api';
+import logo from '../Assets/Image/Logo1-white.png';
 
 const Icon = ({ path, className = 'w-5 h-5' }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -262,12 +263,12 @@ const Header = ({ onMenuToggle }) => {
             onClick={() => setProfileOpen(v => !v)}
             className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-xl hover:bg-surface-100 transition-colors"
           >
-            <div className="w-8 h-8 rounded-full bg-gradient-coastal flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-              {admin?.firstName?.[0]?.toUpperCase() || 'A'}
+            <div className="w-8 h-8 rounded-full bg-gradient-coastal flex items-center justify-center overflow-hidden flex-shrink-0">
+              <img src={logo} alt="YoGo Ventures" className="w-full h-full object-contain p-1" />
             </div>
             <div className="hidden sm:block text-left min-w-0">
               <p className="text-sm font-medium text-primary-700 leading-none truncate max-w-[100px]">
-                {admin?.firstName || 'Admin'}
+                YoGo Ventures
               </p>
               <p className="text-[11px] text-primary-300 capitalize mt-0.5">{admin?.role || 'admin'}</p>
             </div>
@@ -277,8 +278,8 @@ const Header = ({ onMenuToggle }) => {
           {profileOpen && (
             <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-primary-800 rounded-2xl shadow-modal border border-surface-100 dark:border-primary-600 overflow-hidden animate-slide-up z-50">
               <div className="px-4 py-3 border-b border-surface-100">
-                <p className="font-semibold text-primary-700 text-sm">{admin?.firstName} {admin?.lastName}</p>
-                <p className="text-xs text-primary-300 truncate">{admin?.email}</p>
+                <p className="font-semibold text-primary-700 text-sm">YoGo Ventures</p>
+                <p className="text-xs text-primary-300 truncate">{admin?.email_id}</p>
               </div>
               <div className="p-1.5 space-y-0.5">
                 <Link to="/profile" onClick={() => setProfileOpen(false)}
