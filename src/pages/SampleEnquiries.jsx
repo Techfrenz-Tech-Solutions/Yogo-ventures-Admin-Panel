@@ -2,20 +2,41 @@
  * pages/SampleEnquiries.jsx — Sample Enquiries
  * Connected to live API endpoints via Api.js (axios instance).
  *
- * POST /sample/sample-enquirycreate  → create
- * GET  /sample/sample-enquirylist    → list
- * POST /sample/sample-enquiryupdate  → update
- * POST /sample/sample-enquirydelete  → delete
+ * POST /sample/sample-enquirycreate         → create
+ * GET  /sample/sample-enquirylist            → list
+ * POST /sample/sample-enquiryupdate          → update (full record)
+ * POST /sample/sample-enquiryupdate-status   → change workflow status only { enquiry_id, status: 'pending'|'done' }
+ * POST /sample/sample-enquiryupdate-remarks  → save remarks only { enquiry_id, remarks }
+ * POST /sample/sample-enquirydelete          → delete
  *
- * Grid: Enquiry ID · Customer ID · Enquired On · Product Name · Quantity · Responded ·
- *       Sample Ordered · Sample Shipped · Order Placed · Created Date · Updated Date · Actions
+ * Grid: Enquiry ID · Customer · Enquired On · Product Name · Quantity · Responded ·
+ *       Sample Ordered · Sample Shipped · Order Placed · Status · Created · Updated · Remarks · Actions
+ *
+ * `status` (pending/done) is a dedicated workflow column, separate from the
+ * `order_placed` Yes/No business flag — the latter no longer doubles as a
+ * "done" indicator, since that couldn't be cleanly reversed. `remarks` is
+ * independent of both — saving one never touches the other.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { format, isToday, isThisWeek } from 'date-fns';
-import { ConfirmationModal, RetryBlock } from '../components/ui';
+import { ConfirmationModal, RetryBlock, Pagination, RemarksInput } from '../components/ui';
 import toast from 'react-hot-toast';
 import Api from '../utils/Api';
+import { usePagedRows } from '../hooks/usePagedRows';
+import './SampleEnquiries.css';
+
+// Minimum column widths (px) for the natural-width, horizontally-scrolling
+// table (see SampleEnquiries.css) — set once here on the header <th> cells
+// as `minWidth`; with table-layout: auto a column only grows past this
+// floor if its content needs more room, and every body <td> lines up with
+// its header because both are generated from the same `columns` array
+// below (see "Single column source of truth").
+const SAMPLE_COLUMN_WIDTHS = {
+  sno: 50, enquiryId: 90, customer: 190, enquiredOn: 110, productName: 170,
+  quantity: 60, responded: 100, sampleOrdered: 120, sampleShipped: 120,
+  orderPlaced: 110, status: 100, createdDate: 100, updatedDate: 100, remarks: 220, actions: 150,
+};
 
 const Ic = ({ d, className = 'w-4 h-4' }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -37,6 +58,7 @@ const D = {
   envelope:   'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
   check:      'M5 13l4 4L19 7',
   refresh:    'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+  undo:       'M9 15L4 10m0 0l5-5m-5 5h11a4 4 0 010 8h-1',
 };
 
 // Formats the Customer column as "Name (id)", falling back safely when
@@ -79,6 +101,14 @@ const StatusBadge = ({ text }) => {
   if (text === 'No')  return <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-danger-50 text-danger-600 text-xs font-semibold">No</span>;
   return <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-surface-200 text-primary-600 text-xs font-medium">{text || '—'}</span>;
 };
+
+// Pending/Done workflow status pill — distinct from the Yes/No StatusBadge
+// used for the responded/sample_ordered/sample_shipped/order_placed flags.
+const StatusPill = ({ status }) => (
+  status === 'done'
+    ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-success-50 text-success-600 text-xs font-semibold whitespace-nowrap"><Ic d={D.check} className="w-3 h-3" />Done</span>
+    : <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-warning-50 text-warning-600 text-xs font-semibold whitespace-nowrap">Pending</span>
+);
 
 // ─── Modal Components ─────────────────────────
 const SampleModal = ({ item, nextEnquiryId, customers, products, onSave, onClose }) => {
@@ -238,6 +268,7 @@ const ViewModal = ({ item, customerName, onClose }) => (
           { label:'Sample Ordered', value:item.sample_ordered, icon:D.box },
           { label:'Sample Shipped', value:item.sample_shipped, icon:D.box },
           { label:'Order Placed',  value:item.order_placed,   icon:D.check },
+          { label:'Status',        value:item.status === 'done' ? 'Done' : 'Pending', icon:D.done },
         ].map(({ label, value, icon }) => (
           <div key={label} className="flex items-start gap-3 py-2 border-b border-surface-100 last:border-0">
             <div className="w-7 h-7 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -274,6 +305,8 @@ const SampleEnquiries = () => {
   const [modal,       setModal]       = useState(null);
   const [viewItem,    setViewItem]    = useState(null);
   const [confirm,     setConfirm]     = useState(null);
+  const [statusConfirm, setStatusConfirm] = useState(null); // { item, newStatus } while the confirmation popup is open
+  const [statusUpdating, setStatusUpdating] = useState({}); // { [enquiry_id]: true } while a status request is in flight
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -353,15 +386,50 @@ const SampleEnquiries = () => {
     }
   };
 
-  const handleDone = async (item) => {
+  // ── Status change (Mark as Done / Mark as Pending) ───────────
+  // Optimistic local update (no full-list refetch) so only the clicked
+  // row's status changes — rolled back to the prior value if the request
+  // fails. Returns true/false so the confirmation popup (see statusConfirm
+  // below) knows whether it's safe to close.
+  const handleStatusChange = async (item, newStatus) => {
+    if (item.status === newStatus || statusUpdating[item.enquiry_id]) return false;
+    const previousStatus = item.status;
+
+    setStatusUpdating(p => ({ ...p, [item.enquiry_id]: true }));
+    setItems(prev => prev.map(i => (i.enquiry_id === item.enquiry_id ? { ...i, status: newStatus } : i)));
+
     try {
-      const res = await Api.post('/sample/sample-enquiryupdate', { ...item, order_placed: 'Yes' });
-      if (res.data?.status === 0) { toast.error(res.data.message || 'Failed to update.'); return; }
-      toast.success('Marked as done (Order Placed = Yes).');
-      fetchItems();
+      const res = await Api.post('/sample/sample-enquiryupdate-status', {
+        enquiry_id: item.enquiry_id,
+        status:     newStatus,
+      });
+      if (res.data?.status !== 1) {
+        throw new Error(res.data?.message || 'Failed to update status.');
+      }
+      toast.success(newStatus === 'done' ? 'Marked as done.' : 'Marked as pending.');
+      return true;
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to update.');
+      setItems(prev => prev.map(i => (i.enquiry_id === item.enquiry_id ? { ...i, status: previousStatus } : i)));
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to update status.');
+      return false;
+    } finally {
+      setStatusUpdating(p => {
+        const next = { ...p };
+        delete next[item.enquiry_id];
+        return next;
+      });
     }
+  };
+
+  // ── Remarks (inline, per-row save via RemarksInput) ──────────
+  // Independent of `status` — saving a remark never overwrites the
+  // Pending/Done workflow state, and vice versa.
+  const handleSaveRemarks = async (item, remarks) => {
+    const res = await Api.post('/sample/sample-enquiryupdate-remarks', { enquiry_id: item.enquiry_id, remarks });
+    if (res.data?.status !== 1) {
+      throw new Error(res.data?.message || 'Failed to save remarks.');
+    }
+    setItems(prev => prev.map(i => (i.enquiry_id === item.enquiry_id ? { ...i, remarks: res.data.remarks } : i)));
   };
 
   const filtered = useMemo(() => {
@@ -374,10 +442,118 @@ const SampleEnquiries = () => {
     );
   }, [items, search]);
 
+  const {
+    paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
+  } = usePagedRows('/sample-enquiries', filtered);
+
   const totalCount = items.length;
   const todayCount  = items.filter(i => i.enquired_on && isToday(new Date(i.enquired_on))).length;
   const weekCount   = items.filter(i => i.enquired_on && isThisWeek(new Date(i.enquired_on), { weekStartsOn: 1 })).length;
-  const doneCount   = items.filter(i => i.order_placed === 'Yes').length;
+  const doneCount   = items.filter(i => i.status === 'done').length;
+
+  // ── Single column source of truth ─────────────
+  // Header <th> cells and body <td> cells are both generated from this one
+  // array (rendered in the same order) so they can never drift apart again
+  // — the earlier bug (Status header with no matching body cell, shifting
+  // every later column left) was caused by the header and body listing
+  // columns independently by hand.
+  const columns = useMemo(() => [
+    {
+      key: 'sno', label: 'S.No', width: SAMPLE_COLUMN_WIDTHS.sno,
+      cellClassName: 'text-primary-400 text-xs font-mono',
+      render: (item, idx) => rangeStart + idx,
+    },
+    {
+      key: 'enquiryId', label: 'Enquiry ID', width: SAMPLE_COLUMN_WIDTHS.enquiryId,
+      render: (item) => (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium se-nowrap">{item.enquiry_id ?? '—'}</span>
+      ),
+    },
+    {
+      key: 'customer', label: 'Customer', width: SAMPLE_COLUMN_WIDTHS.customer,
+      render: (item) => {
+        const display = formatCustomerDisplay(item.customer_name || getCustomerName(item.customer_id), item.customer_id);
+        return <span className="text-primary-700 text-sm se-truncate block" title={display}>{display}</span>;
+      },
+    },
+    {
+      key: 'enquiredOn', label: 'Enquired On', width: SAMPLE_COLUMN_WIDTHS.enquiredOn,
+      cellClassName: 'text-primary-400 text-xs se-nowrap',
+      render: (item) => item.enquired_on ? format(new Date(item.enquired_on), 'dd MMM yyyy') : '—',
+    },
+    {
+      key: 'productName', label: 'Product Name', width: SAMPLE_COLUMN_WIDTHS.productName,
+      render: (item) => <span className="font-medium text-primary-700 se-clamp-2" title={item.product_name || ''}>{item.product_name || '—'}</span>,
+    },
+    {
+      key: 'quantity', label: 'Qty', width: SAMPLE_COLUMN_WIDTHS.quantity,
+      render: (item) => <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 text-accent-600 text-xs font-semibold">{item.quantity ?? '—'}</span>,
+    },
+    {
+      key: 'responded', label: 'Responded', width: SAMPLE_COLUMN_WIDTHS.responded,
+      render: (item) => <StatusBadge text={item.responded} />,
+    },
+    {
+      key: 'sampleOrdered', label: 'Sample Ordered', width: SAMPLE_COLUMN_WIDTHS.sampleOrdered,
+      render: (item) => <StatusBadge text={item.sample_ordered} />,
+    },
+    {
+      key: 'sampleShipped', label: 'Sample Shipped', width: SAMPLE_COLUMN_WIDTHS.sampleShipped,
+      render: (item) => <StatusBadge text={item.sample_shipped} />,
+    },
+    {
+      key: 'orderPlaced', label: 'Order Placed', width: SAMPLE_COLUMN_WIDTHS.orderPlaced,
+      render: (item) => (
+        item.order_placed === 'Yes'
+          ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-success-50 text-success-600 text-xs font-semibold se-nowrap"><Ic d={D.check} className="w-3 h-3" />Yes</span>
+          : <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-danger-50 text-danger-600 text-xs font-semibold se-nowrap">No</span>
+      ),
+    },
+    {
+      key: 'status', label: 'Status', width: SAMPLE_COLUMN_WIDTHS.status,
+      render: (item) => <StatusPill status={item.status} />,
+    },
+    {
+      key: 'createdDate', label: 'Created', width: SAMPLE_COLUMN_WIDTHS.createdDate,
+      cellClassName: 'text-primary-400 text-xs se-nowrap',
+      render: (item) => item.created_at ? format(new Date(item.created_at), 'dd MMM yyyy') : '—',
+    },
+    {
+      key: 'updatedDate', label: 'Updated', width: SAMPLE_COLUMN_WIDTHS.updatedDate,
+      cellClassName: 'text-primary-400 text-xs se-nowrap',
+      render: (item) => item.updated_at ? format(new Date(item.updated_at), 'dd MMM yyyy') : '—',
+    },
+    {
+      key: 'remarks', label: 'Remarks', width: SAMPLE_COLUMN_WIDTHS.remarks,
+      render: (item) => <RemarksInput value={item.remarks} onSave={(remarks) => handleSaveRemarks(item, remarks)} />,
+    },
+    {
+      key: 'actions', label: 'Actions', width: SAMPLE_COLUMN_WIDTHS.actions,
+      headClassName: 'text-center',
+      render: (item) => (
+        <div className="flex items-center justify-center gap-1 flex-wrap">
+          <button onClick={()=>setViewItem(item)} className="btn-icon text-info-500 hover:text-info-600 hover:bg-info-50" title="View"><Ic d={D.eye} /></button>
+          <button onClick={()=>setModal(item)} className="btn-icon text-primary-400 hover:text-primary-600 hover:bg-primary-50" title="Edit"><Ic d={D.edit} /></button>
+          <button onClick={()=>setConfirm({ title:'Delete Enquiry', message:`Delete sample enquiry #${item.enquiry_id}?`, onConfirm:()=>handleDelete(item.enquiry_id) })} className="btn-icon text-danger-400 hover:text-danger-600 hover:bg-danger-50" title="Delete"><Ic d={D.trash} /></button>
+          {item.status === 'done' ? (
+            <button
+              onClick={()=>setStatusConfirm({ item, newStatus:'pending' })}
+              disabled={!!statusUpdating[item.enquiry_id]}
+              className="btn-icon text-warning-500 hover:text-warning-600 hover:bg-warning-50 disabled:opacity-50"
+              title="Mark as Pending"
+            ><Ic d={D.undo} /></button>
+          ) : (
+            <button
+              onClick={()=>setStatusConfirm({ item, newStatus:'done' })}
+              disabled={!!statusUpdating[item.enquiry_id]}
+              className="btn-icon text-success-500 hover:text-success-600 hover:bg-success-50 disabled:opacity-50"
+              title="Mark as Done"
+            ><Ic d={D.done} /></button>
+          )}
+        </div>
+      ),
+    },
+  ], [rangeStart, customers, statusUpdating]);
 
   return (
     <div className="page-container">
@@ -401,7 +577,7 @@ const SampleEnquiries = () => {
         <StatCard label="Total Enquiries" value={totalCount} iconPath={D.box}    color="primary" />
         <StatCard label="Today"          value={todayCount}  iconPath={D.calendar} color="success" sub="Enquired today" />
         <StatCard label="This Week"      value={weekCount}   iconPath={D.calendar} color="accent"  sub="Last 7 days" />
-        <StatCard label="Order Placed"   value={doneCount}   iconPath={D.done}     color="earth"   sub="Completed" />
+        <StatCard label="Done"           value={doneCount}   iconPath={D.done}     color="earth"   sub="Marked as done" />
       </div>
 
       <div className="card !p-4 flex flex-wrap gap-3">
@@ -413,29 +589,19 @@ const SampleEnquiries = () => {
       </div>
 
       <div className="card !p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="data-table">
+        <div className="overflow-x-auto se-table-wrap">
+          <table className="data-table se-table">
             <thead>
               <tr>
-                <th className="w-12">S.No</th>
-                <th>Enquiry ID</th>
-                <th>Customer ID</th>
-                <th>Enquired On</th>
-                <th>Product Name</th>
-                <th>Quantity</th>
-                <th>Responded</th>
-                <th>Sample Ordered</th>
-                <th>Sample Shipped</th>
-                <th>Order Placed</th>
-                <th>Created Date</th>
-                <th>Updated Date</th>
-                <th className="text-center">Actions</th>
+                {columns.map(col => (
+                  <th key={col.key} style={{ minWidth: col.width }} className={col.headClassName}>{col.label}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="text-center py-16">
+                  <td colSpan={columns.length} className="text-center py-16">
                     <div className="flex items-center justify-center gap-2 text-primary-400">
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading sample enquiries…</span>
@@ -444,54 +610,34 @@ const SampleEnquiries = () => {
                 </tr>
               ) : fetchError ? (
                 <tr>
-                  <td colSpan={13}>
-                    <RetryBlock message={fetchError} onRetry={fetchItems} colSpan={13} />
+                  <td colSpan={columns.length}>
+                    <RetryBlock message={fetchError} onRetry={fetchItems} colSpan={columns.length} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={13} className="text-center py-16">
+                <tr><td colSpan={columns.length} className="text-center py-16">
                   <div className="flex flex-col items-center gap-3 text-primary-300">
                     <div className="w-14 h-14 rounded-2xl bg-surface-100 flex items-center justify-center"><Ic d={D.box} className="w-7 h-7" /></div>
                     <p className="text-sm">{items.length===0?'No sample enquiries yet. Click "Add Enquiry" to start.':'No enquiries match your search.'}</p>
                   </div>
                 </td></tr>
-              ) : filtered.map((item, idx) => (
-                <tr key={item.enquiry_id} className={item.order_placed==='Yes' ? 'opacity-60' : ''}>
-                  <td className="text-primary-400 text-xs font-mono">{idx+1}</td>
-                  <td><span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">{item.enquiry_id}</span></td>
-                  <td><span className="text-primary-700 text-sm">{formatCustomerDisplay(item.customer_name || getCustomerName(item.customer_id), item.customer_id)}</span></td>
-                  <td className="text-primary-400 text-xs whitespace-nowrap">{item.enquired_on ? format(new Date(item.enquired_on),'dd MMM yyyy') : '—'}</td>
-                  <td><span className="font-medium text-primary-700">{item.product_name || '—'}</span></td>
-                  <td><span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 text-accent-600 text-xs font-semibold">{item.quantity}</span></td>
-                  <td><StatusBadge text={item.responded} /></td>
-                  <td><StatusBadge text={item.sample_ordered} /></td>
-                  <td><StatusBadge text={item.sample_shipped} /></td>
-                  <td>
-                    {item.order_placed==='Yes'
-                      ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-success-50 text-success-600 text-xs font-semibold"><Ic d={D.check} className="w-3 h-3" />Yes</span>
-                      : <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-danger-50 text-danger-600 text-xs font-semibold">No</span>
-                    }
-                  </td>
-                  <td className="text-primary-400 text-xs whitespace-nowrap">{item.created_at ? format(new Date(item.created_at),'dd MMM yyyy') : '—'}</td>
-                  <td className="text-primary-400 text-xs whitespace-nowrap">{item.updated_at ? format(new Date(item.updated_at),'dd MMM yyyy') : '—'}</td>
-                  <td>
-                    <div className="flex items-center justify-center gap-1 flex-wrap">
-                      <button onClick={()=>setViewItem(item)} className="btn-icon text-info-500 hover:text-info-600 hover:bg-info-50" title="View"><Ic d={D.eye} /></button>
-                      <button onClick={()=>setModal(item)} className="btn-icon text-primary-400 hover:text-primary-600 hover:bg-primary-50" title="Edit"><Ic d={D.edit} /></button>
-                      <button onClick={()=>setConfirm({ title:'Delete Enquiry', message:`Delete sample enquiry #${item.enquiry_id}?`, onConfirm:()=>handleDelete(item.enquiry_id) })} className="btn-icon text-danger-400 hover:text-danger-600 hover:bg-danger-50" title="Delete"><Ic d={D.trash} /></button>
-                      {item.order_placed!=='Yes' && (
-                        <button onClick={()=>setConfirm({ title:'Mark as Done', message:`Mark enquiry #${item.enquiry_id} as done and set "Order Placed" to Yes?`, onConfirm:()=>handleDone(item) })} className="btn-icon text-success-500 hover:text-success-600 hover:bg-success-50" title="Mark as Done"><Ic d={D.done} /></button>
-                      )}
-                    </div>
-                  </td>
+              ) : paged.map((item, idx) => (
+                <tr key={item.enquiry_id} className={item.status==='done' ? 'opacity-60' : ''}>
+                  {columns.map(col => (
+                    <td key={col.key} className={col.cellClassName}>{col.render(item, idx)}</td>
+                  ))}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {!loading && !fetchError && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-100 text-xs text-primary-400">
-            Showing <span className="font-medium text-primary-600">{filtered.length}</span> of <span className="font-medium text-primary-600">{items.length}</span> enquiries
+        {!loading && !fetchError && total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-100">
+            <Pagination
+              page={page} totalPages={totalPages} onPageChange={setPage}
+              total={total} rowsPerPage={rowsPerPage} onRowsPerPageChange={setRowsPerPage}
+              itemLabel="enquiries"
+            />
           </div>
         )}
       </div>
@@ -508,6 +654,32 @@ const SampleEnquiries = () => {
       )}
       {viewItem && <ViewModal item={viewItem} customerName={getCustomerName(viewItem.customer_id)} onClose={()=>setViewItem(null)} />}
       {confirm  && <ConfirmationModal open={!!confirm} onClose={()=>setConfirm(null)} onConfirm={confirm.onConfirm} title={confirm.title} message={confirm.message} />}
+      {statusConfirm && (
+        <ConfirmationModal
+          open={!!statusConfirm}
+          onClose={()=>setStatusConfirm(null)}
+          // No manual setStatusConfirm(null) here — ConfirmationModal only
+          // closes this one itself once handleStatusChange resolves true,
+          // so a failed update (it returns false) leaves the popup open.
+          onConfirm={()=>handleStatusChange(statusConfirm.item, statusConfirm.newStatus)}
+          title="Change Enquiry Status"
+          message={
+            <>
+              {statusConfirm.newStatus === 'done'
+                ? `Are you sure you want to mark sample enquiry #${statusConfirm.item.enquiry_id} as Done?`
+                : `Are you sure you want to mark sample enquiry #${statusConfirm.item.enquiry_id} back as Pending?`}
+              <span className="block text-xs text-primary-400 mt-2">
+                Current status: <span className="font-medium">{statusConfirm.item.status === 'done' ? 'Done' : 'Pending'}</span>
+                {' → '}
+                New status: <span className="font-medium">{statusConfirm.newStatus === 'done' ? 'Done' : 'Pending'}</span>
+              </span>
+            </>
+          }
+          confirmText="Confirm"
+          confirmingText="Updating…"
+          type="primary"
+        />
+      )}
     </div>
   );
 };

@@ -1,0 +1,87 @@
+/**
+ * pages/SampleEnquiries.css — natural-width table with horizontal scroll
+ * for /sample-enquiries.
+ *
+ * Previously this squeezed every column to fixed percentage widths so the
+ * whole table fit a normal desktop viewport with no horizontal scroll. That
+ * broke once the Remarks column (an editable text input, not a short badge)
+ * was added — there wasn't enough width left to shrink into. Rather than
+ * keep re-squeezing columns every time one is added, the table now sizes
+ * each column to its content (table-layout: auto) with a sensible min-width
+ * per column (see SAMPLE_COLUMN_WIDTHS in SampleEnquiries.jsx, now px
+ * min-widths rather than percentages) and scrolls horizontally within its
+ * card — the header stays aligned with the body because both are driven by
+ * the same `columns` array (see the "Single column source of truth" comment
+ * in SampleEnquiries.jsx).
+ */
+
+.se-table-wrap {
+  overflow-x: auto;
+}
+
+.se-table {
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+}
+
+.se-table th,
+.se-table td {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+table.se-table th {
+  font-size: 11px;
+  line-height: 1.25;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  white-space: nowrap;
+}
+table.se-table td {
+  font-size: 12px;
+}
+
+/* Body cell values DO need to break long unbroken strings (a customer name,
+   a long product name) rather than overflow the column. */
+.se-table td {
+  overflow-wrap: break-word;
+}
+
+/* Long single-line values (customer name) truncate with an ellipsis — the
+   full value is still available via the native title tooltip and the
+   existing View action. */
+.se-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+/* Multi-line clamp for longer free text (product name) so one unusually
+   long value can't blow out a row's height. */
+.se-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 220px;
+}
+
+/* Enquiry ID / dates / badges / action icons should never wrap — they're
+   short, fixed-format values where a mid-value line break is much harder
+   to read than the value just staying on one line. */
+.se-nowrap {
+  white-space: nowrap;
+}
+
+/* Smaller action icon buttons so the Actions column's 4 icons need less
+   width — some wrapping to a second row is fine (still compact), but this
+   reduces how often it's needed. */
+.se-table .btn-icon {
+  padding: 5px;
+}
+.se-table .btn-icon svg {
+  width: 14px;
+  height: 14px;
+}

@@ -10,9 +10,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal, RetryBlock } from '../components/ui';
+import { ConfirmationModal, RetryBlock, Pagination } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
+import { usePagedRows } from '../hooks/usePagedRows';
 
 // ─── SVG Icon helper ──────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -65,8 +66,10 @@ const CountryModal = ({ country, onSave, onClose }) => {
   const isEdit = !!country;
   const [form, setForm] = useState({
     code: country?.country_code || country?.code || '',
+    iso3: country?.iso3 || '',
     name: country?.country_name || country?.name || '',
     phoneCode: country?.phone_code || '',
+    isActive: country ? !!Number(country?.is_active ?? 1) : true,
   });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
@@ -81,8 +84,18 @@ const CountryModal = ({ country, onSave, onClose }) => {
       toast.error("Phone code must start with '+' followed by 1-4 digits only (e.g. +91).");
       return;
     }
+    if (form.iso3.trim() && !/^[A-Za-z]{3}$/.test(form.iso3.trim())) {
+      toast.error('ISO Alpha-3 code must be exactly 3 letters (e.g. IND).');
+      return;
+    }
     setSaving(true);
-    await onSave({ code: form.code.trim().toUpperCase(), name: form.name.trim(), phoneCode });
+    await onSave({
+      code: form.code.trim().toUpperCase(),
+      iso3: form.iso3.trim().toUpperCase(),
+      name: form.name.trim(),
+      phoneCode,
+      isActive: form.isActive,
+    });
     setSaving(false);
   };
 
@@ -99,18 +112,30 @@ const CountryModal = ({ country, onSave, onClose }) => {
         </div>
         <form onSubmit={handleSubmit}>
           <div className="p-5 space-y-4">
-            <div className="form-group !mb-0">
-              <label className="form-label">
-                Country Code <span className="text-danger-500">*</span>
-              </label>
-              <input
-                className="form-input"
-                value={form.code}
-                onChange={e => set('code', e.target.value)}
-                placeholder="e.g. IN"
-                maxLength={10}
-                required
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="form-group !mb-0">
+                <label className="form-label">
+                  ISO Alpha-2 <span className="text-danger-500">*</span>
+                </label>
+                <input
+                  className="form-input"
+                  value={form.code}
+                  onChange={e => set('code', e.target.value)}
+                  placeholder="e.g. IN"
+                  maxLength={10}
+                  required
+                />
+              </div>
+              <div className="form-group !mb-0">
+                <label className="form-label">ISO Alpha-3</label>
+                <input
+                  className="form-input"
+                  value={form.iso3}
+                  onChange={e => set('iso3', e.target.value)}
+                  placeholder="e.g. IND"
+                  maxLength={3}
+                />
+              </div>
             </div>
             <div className="form-group !mb-0">
               <label className="form-label">
@@ -140,6 +165,17 @@ const CountryModal = ({ country, onSave, onClose }) => {
                 Must start with "+" followed by digits only, e.g. +91, +1, +44.
               </p>
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={e => set('isActive', e.target.checked)}
+                className="w-4 h-4 rounded border-surface-300"
+              />
+              <span className="text-sm font-medium text-primary-600 dark:text-surface-100">
+                Active (visible in public forms)
+              </span>
+            </label>
           </div>
           <div className="flex justify-end gap-2 px-5 py-4 border-t border-surface-100 dark:border-primary-700">
             <button type="button" onClick={onClose} className="btn-outline">Cancel</button>
@@ -171,9 +207,11 @@ const ViewModal = ({ country, onClose }) => {
         </div>
         <div className="p-5 space-y-3">
           {[
-            { label: 'Country Code', value: country.country_code || country.code },
+            { label: 'ISO Alpha-2',  value: country.country_code || country.code },
+            { label: 'ISO Alpha-3',  value: country.iso3 || '—' },
             { label: 'Country Name', value: country.country_name || country.name },
             { label: 'Phone Code',   value: country.phone_code || '—' },
+            { label: 'Status',       value: Number(country.is_active ?? 1) ? 'Active' : 'Inactive' },
             {
               label: 'Created Date',
               value: createdAt ? format(new Date(createdAt), 'dd MMM yyyy, hh:mm a') : '—',
@@ -230,12 +268,14 @@ const CountryMaster = () => {
   useEffect(() => { fetchCountries(); }, [fetchCountries]);
 
   // ── Create ──────────────────────────────────
-  const handleCreate = async ({ code, name, phoneCode }) => {
+  const handleCreate = async ({ code, iso3, name, phoneCode, isActive }) => {
     try {
       await Api.post('/country/countrycreate', {
         country_code: code,
+        iso3,
         country_name: name,
         phone_code:   phoneCode,
+        is_active:    isActive ? 1 : 0,
       });
       toast.success('Country added successfully.');
       setModal(null);
@@ -246,13 +286,15 @@ const CountryMaster = () => {
   };
 
   // ── Update ──────────────────────────────────
-  const handleUpdate = async ({ code, name, phoneCode }) => {
+  const handleUpdate = async ({ code, iso3, name, phoneCode, isActive }) => {
     try {
       await Api.post('/country/countryupdate', {
         id:           modal?.id || modal?._id,
         country_code: code,
+        iso3,
         country_name: name,
         phone_code:   phoneCode,
+        is_active:    isActive ? 1 : 0,
       });
       toast.success('Country updated successfully.');
       setModal(null);
@@ -292,6 +334,10 @@ const CountryMaster = () => {
     });
   }, [countries, search]);
 
+  const {
+    paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
+  } = usePagedRows('/country-master', filtered);
+
   // ── Recently added (last 7 days) ─────────────
   const recentCount = useMemo(() => {
     return countries.filter(c => {
@@ -299,6 +345,11 @@ const CountryMaster = () => {
       return !isNaN(d) && (Date.now() - d) / 86400000 <= 7;
     }).length;
   }, [countries]);
+
+  const activeCount = useMemo(
+    () => countries.filter(c => Number(c.is_active ?? 1)).length,
+    [countries]
+  );
 
   // ─────────────────────────────────────────────
   return (
@@ -332,7 +383,7 @@ const CountryMaster = () => {
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard label="Total Countries"  value={countries.length} iconPath={ICONS.globe}  color="primary" />
-        <StatCard label="Active Countries" value={countries.length} iconPath={ICONS.tag}    color="success" />
+        <StatCard label="Active Countries" value={activeCount}      iconPath={ICONS.tag}    color="success" />
         <StatCard label="Recently Added"   value={recentCount}      iconPath={ICONS.add}    color="accent"  />
       </div>
 
@@ -359,9 +410,10 @@ const CountryMaster = () => {
             <thead>
               <tr>
                 <th className="w-12">S.No</th>
-                <th>Country Code</th>
+                <th>ISO Code</th>
                 <th>Country Name</th>
                 <th>Phone Code</th>
+                <th>Status</th>
                 <th>Created Date</th>
                 <th>Updated Date</th>
                 <th className="text-center">Actions</th>
@@ -370,7 +422,7 @@ const CountryMaster = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-16">
+                  <td colSpan={8} className="text-center py-16">
                     <div className="flex items-center justify-center gap-2 text-primary-400">
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading countries…</span>
@@ -378,35 +430,46 @@ const CountryMaster = () => {
                   </td>
                 </tr>
               ) : fetchError ? (
-                <RetryBlock message={fetchError} onRetry={fetchCountries} colSpan={7} />
+                <RetryBlock message={fetchError} onRetry={fetchCountries} colSpan={8} />
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-16 text-primary-300 dark:text-primary-500">
+                  <td colSpan={8} className="text-center py-16 text-primary-300 dark:text-primary-500">
                     {countries.length === 0
                       ? 'No countries yet. Click "Add Country" to create one.'
                       : 'No countries match your search.'}
                   </td>
                 </tr>
               ) : (
-                filtered.map((country, idx) => {
+                paged.map((country, idx) => {
                   const code      = country.country_code || country.code;
+                  const iso3      = country.iso3;
                   const name      = country.country_name || country.name;
                   const phoneCode = country.phone_code;
+                  const isActive  = Number(country.is_active ?? 1) === 1;
                   const createdAt = country.created_date  || country.created_at  || country.createdAt;
                   const updatedAt = country.updated_date  || country.updated_at  || country.updatedAt;
 
                   return (
                     <tr key={country._id || country.id}>
-                      <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
+                      <td className="text-primary-400 text-xs font-mono">{rangeStart + idx}</td>
                       <td>
                         <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 dark:bg-primary-700 text-primary-600 dark:text-primary-200 text-xs font-mono font-medium">
-                          {code}
+                          {code}{iso3 ? ` / ${iso3}` : ''}
                         </span>
                       </td>
                       <td className="font-medium text-primary-700 dark:text-surface-100">{name}</td>
                       <td>
                         <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 dark:bg-primary-700 text-accent-600 dark:text-accent-300 text-xs font-mono font-medium">
                           {phoneCode || '—'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${
+                          isActive
+                            ? 'bg-success-50 text-success-600'
+                            : 'bg-primary-50 text-primary-400 dark:bg-primary-700 dark:text-primary-400'
+                        }`}>
+                          {isActive ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td className="text-primary-400 dark:text-primary-400 text-xs whitespace-nowrap">
@@ -453,9 +516,13 @@ const CountryMaster = () => {
             </tbody>
           </table>
         </div>
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-100 dark:border-primary-700 text-xs text-primary-400 dark:text-primary-400">
-            Showing {filtered.length} of {countries.length} countries
+        {!loading && total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-100 dark:border-primary-700">
+            <Pagination
+              page={page} totalPages={totalPages} onPageChange={setPage}
+              total={total} rowsPerPage={rowsPerPage} onRowsPerPageChange={setRowsPerPage}
+              itemLabel="countries"
+            />
           </div>
         )}
       </div>

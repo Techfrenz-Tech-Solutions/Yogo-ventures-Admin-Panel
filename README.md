@@ -302,11 +302,6 @@ This project is private and proprietary.
 - Theme toggle has been removed from the header
 - `.dark` classes have been removed from CSS files
 
-### Order Status Master
-- Increased font size in "Add Status" button
-- Increased icon sizes in table action buttons (from w-3 h-3 to w-4 h-4)
-- Status details modal now displays information in grid format with cards
-
 ### Order Tracking
 - All dates now displayed in popup modal in grid format
 - All dates now displayed in table for better visibility

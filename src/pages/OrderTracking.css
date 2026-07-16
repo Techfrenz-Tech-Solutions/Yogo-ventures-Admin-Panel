@@ -1,0 +1,111 @@
+/**
+ * pages/OrderTracking.css — sticky fixed columns for the order-tracking
+ * table (S No, Order ID, Customer ID, Product Name, Quantity, Order Value,
+ * Status) so they stay visible while the dynamic date columns scroll
+ * behind them, combined with the app-wide sticky header (see
+ * ".data-table thead th" in globals.css) that freezes column titles
+ * during vertical scroll.
+ *
+ * Widths/offsets are NOT hardcoded here — they come from the single
+ * STICKY_COLUMNS config in OrderTracking.jsx, passed down as CSS custom
+ * properties on the <table> element (--sticky-left-<key> / --sticky-w-<key>),
+ * so the JS config stays the one source of truth for every number and this
+ * file only ever references it by name.
+ *
+ * Row/header background colours are plain Tailwind bg-* utility classes
+ * applied directly in the JSX (bg-danger-50 / bg-warning-50 / bg-success-50
+ * / bg-primary-50) — this file only handles position/stacking/structure.
+ *
+ * ── Stacking order (root cause of the previous bug) ──────────────────
+ * globals.css's shared ".data-table thead th" rule (every header cell,
+ * vertically sticky for ALL tables) sets z-index: 5. This table ALSO has
+ * seven header cells that are horizontally sticky — those must render
+ * above the other five (dynamic date / Actions) header cells while they
+ * scroll past underneath, which only works if their z-index is HIGHER
+ * than 5. The previous version of this file set ".sticky-col--head" to
+ * z-index: 4 — LOWER than 5 — so the scrolling header cells painted over
+ * the sticky ones during horizontal scroll instead of sliding behind
+ * them. The four-tier scheme below fixes that:
+ *   1. normal body cell            → z-index: auto (0)
+ *   2. sticky body column          → z-index: 2
+ *   3. header cell (any, via globals.css)  → z-index: 5
+ *   4. header cell that's ALSO sticky-left → z-index: 8
+ */
+
+/* ── Scoped table structure ──────────────────────────────────────────
+   border-collapse: collapse (the shared .data-table default) is a known
+   source of rendering glitches — flickering/duplicated borders, and
+   backgrounds briefly showing gaps — on tables using position: sticky,
+   because collapsed borders are painted jointly between adjacent cells
+   instead of each cell owning its own box. Scoped to .ot-table only (via
+   the table element itself) so the other ~20 pages sharing .data-table
+   are completely unaffected. */
+table.ot-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.sticky-col {
+  position: sticky;
+  z-index: 2; /* tier 2: above normal (non-sticky) scrolling body cells */
+  background-clip: padding-box; /* keeps the opaque background from bleeding under adjacent borders */
+  border-right: 1px solid rgba(100, 116, 139, 0.12); /* thin divider between sticky columns */
+}
+
+/* Written as ".ot-table thead th.sticky-col--head" (not just
+   ".sticky-col--head") purely so this file's intent is unambiguous next
+   to globals.css's ".data-table thead th" — both select the same cells,
+   but this file only ever needs to touch z-index/borders here, letting
+   the shared rule keep owning position/top/background. */
+table.ot-table thead th.sticky-col--head {
+  z-index: 8; /* tier 4: header cells that are also left-sticky — highest layer */
+}
+
+.sticky-col-sno         { left: var(--sticky-left-sno);        width: var(--sticky-w-sno);        min-width: var(--sticky-w-sno);        max-width: var(--sticky-w-sno); }
+.sticky-col-orderid     { left: var(--sticky-left-orderId);    width: var(--sticky-w-orderId);    min-width: var(--sticky-w-orderId);    max-width: var(--sticky-w-orderId); }
+.sticky-col-customerid  { left: var(--sticky-left-customerId); width: var(--sticky-w-customerId); min-width: var(--sticky-w-customerId); max-width: var(--sticky-w-customerId); }
+.sticky-col-productname { left: var(--sticky-left-productName); width: var(--sticky-w-productName); min-width: var(--sticky-w-productName); max-width: var(--sticky-w-productName); white-space: normal; }
+.sticky-col-quantity    { left: var(--sticky-left-quantity);   width: var(--sticky-w-quantity);   min-width: var(--sticky-w-quantity);   max-width: var(--sticky-w-quantity); }
+.sticky-col-ordervalue  { left: var(--sticky-left-orderValue); width: var(--sticky-w-orderValue); min-width: var(--sticky-w-orderValue); max-width: var(--sticky-w-orderValue); }
+.sticky-col-status      { left: var(--sticky-left-status);     width: var(--sticky-w-status);     min-width: var(--sticky-w-status);     max-width: var(--sticky-w-status); }
+
+/* ── Visual separation ──────────────────────────────────────────────
+   Thin borders between every sticky column (see .sticky-col above —
+   subtle, theme-neutral rgba grey reads reasonably on both light and
+   dark backgrounds rather than a pure black/white line), a stronger
+   divider + soft shadow after the final sticky column (Status) to mark
+   the boundary with the scrollable section, and a slightly stronger
+   bottom border on the sticky header row than the plain body-cell
+   divider. */
+table.ot-table thead th.sticky-col--head {
+  border-bottom: 2px solid rgba(51, 87, 101, 0.18);
+}
+.sticky-col-status {
+  border-right: none; /* the shadow below is the boundary marker instead of a plain line */
+  box-shadow: 3px 0 6px -2px rgba(15, 23, 42, 0.18);
+}
+
+/* ── Responsive: below 768px only S No / Order ID / Status stay sticky —
+   Customer ID / Product Name / Quantity / Order Value scroll normally
+   with the dynamic date columns instead. Status's left offset shrinks to
+   just S No + Order ID's width, since the columns between them are no
+   longer part of the sticky flow. Declared after the base rules above so
+   these plain (same-specificity) overrides win by source order — no
+   !important needed anywhere. ── */
+@media (max-width: 768px) {
+  .sticky-col-customerid,
+  .sticky-col-productname,
+  .sticky-col-quantity,
+  .sticky-col-ordervalue {
+    position: static;
+    left: auto;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    box-shadow: none;
+    border-right: none;
+  }
+  .sticky-col-status {
+    left: var(--sticky-left-status-mobile);
+  }
+}

@@ -15,9 +15,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal, RetryBlock } from '../components/ui';
+import { ConfirmationModal, RetryBlock, Pagination } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
+import { useExcelExport } from '../hooks/useExcelExport';
+import { usePagedRows } from '../hooks/usePagedRows';
 
 // ─── SVG Icon helper ──────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -34,6 +36,7 @@ const D = {
   close:   'M6 18L18 6M6 6l12 12',
   search:  'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0',
   refresh: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+  download:'M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2',
   users:   'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z',
   user:    'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
   mail:    'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
@@ -214,6 +217,8 @@ const CustomerMaster = () => {
   const [modal,     setModal]     = useState(null); // null | 'add' | customerObject
   const [viewItem,  setViewItem]  = useState(null);
   const [confirm,   setConfirm]   = useState(null);
+  const { exporting, runExport } = useExcelExport('/customer/customerexport', 'customers');
+  const handleExport = () => runExport({ search: search.trim() || undefined });
 
   // ── Fetch country dropdown ───────────────────
   const fetchCountries = useCallback(async () => {
@@ -325,6 +330,10 @@ const CustomerMaster = () => {
     );
   }, [customers, search]);
 
+  const {
+    paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total,
+  } = usePagedRows('/customer-master', filtered);
+
   // ── Recently added (last 7 days) ─────────────
   const recentCount = useMemo(() => customers.filter(c => {
     const d = new Date(c.created_date);
@@ -379,6 +388,22 @@ const CustomerMaster = () => {
         )}
       </div>
 
+      {/* Export */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleExport}
+          disabled={exporting || filtered.length === 0}
+          className="btn-outline"
+          title={filtered.length === 0 ? 'No matching records to export' : 'Export the filtered list to Excel'}
+        >
+          {exporting ? (
+            <><div className="spinner !w-4 !h-4" /> Exporting…</>
+          ) : (
+            <><Ic d={D.download} className="w-4 h-4" /> Export</>
+          )}
+        </button>
+      </div>
+
       {/* Table */}
       <div className="card !p-0 overflow-hidden">
         <div className="overflow-x-auto">
@@ -427,7 +452,7 @@ const CustomerMaster = () => {
                   </td>
                 </tr>
               ) : (
-                filtered.map((cust) => (
+                paged.map((cust) => (
                   <tr key={cust.id}>
                     <td>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">
@@ -500,10 +525,13 @@ const CustomerMaster = () => {
             </tbody>
           </table>
         </div>
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-100 text-xs text-primary-400">
-            Showing <span className="font-medium text-primary-600">{filtered.length}</span> of{' '}
-            <span className="font-medium text-primary-600">{customers.length}</span> customers
+        {!loading && total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-100">
+            <Pagination
+              page={page} totalPages={totalPages} onPageChange={setPage}
+              total={total} rowsPerPage={rowsPerPage} onRowsPerPageChange={setRowsPerPage}
+              itemLabel="customers"
+            />
           </div>
         )}
       </div>

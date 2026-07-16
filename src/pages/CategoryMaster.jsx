@@ -10,9 +10,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal, RetryBlock } from '../components/ui';
+import { ConfirmationModal, RetryBlock, Pagination } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
+import { usePagedRows } from '../hooks/usePagedRows';
 
 // ─── SVG Icon helper ──────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -281,6 +282,10 @@ const CategoryMaster = () => {
     });
   }, [categories, search]);
 
+  const {
+    paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
+  } = usePagedRows('/category-master', filtered);
+
   // ── Recently added (last 7 days) ─────────────
   const recentCount = useMemo(() => {
     return categories.filter(c => {
@@ -380,7 +385,7 @@ const CategoryMaster = () => {
                   </td>
                 </tr>
               ) : (
-                filtered.map((cat, idx) => {
+                paged.map((cat, idx) => {
                   const code      = cat.category_code || cat.code;
                   const name      = cat.category_name || cat.name;
                   const createdAt = cat.created_date  || cat.created_at  || cat.createdAt;
@@ -388,7 +393,7 @@ const CategoryMaster = () => {
 
                   return (
                     <tr key={cat._id || cat.id}>
-                      <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
+                      <td className="text-primary-400 text-xs font-mono">{rangeStart + idx}</td>
                       <td>
                         <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 dark:bg-primary-700 text-primary-600 dark:text-primary-200 text-xs font-mono font-medium">
                           {code}
@@ -439,9 +444,13 @@ const CategoryMaster = () => {
             </tbody>
           </table>
         </div>
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-100 dark:border-primary-700 text-xs text-primary-400 dark:text-primary-400">
-            Showing {filtered.length} of {categories.length} categories
+        {!loading && total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-100 dark:border-primary-700">
+            <Pagination
+              page={page} totalPages={totalPages} onPageChange={setPage}
+              total={total} rowsPerPage={rowsPerPage} onRowsPerPageChange={setRowsPerPage}
+              itemLabel="categories"
+            />
           </div>
         )}
       </div>

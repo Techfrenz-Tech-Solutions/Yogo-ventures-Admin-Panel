@@ -4,6 +4,7 @@
  *
  * GET  /enquiry/enquirylist           → list
  * POST /enquiry/enquiryupdate-status  → mark as done  { id, status: "Mark as Done" }
+ * POST /enquiry/enquiryupdate-remarks → save remarks  { id, remarks }
  * POST /enquiry/enquirydelete         → delete        { id }
  */
 
@@ -11,9 +12,11 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { format, isToday, isThisWeek } from 'date-fns';
 import toast from 'react-hot-toast';
-import { ConfirmationModal, RetryBlock } from '../components/ui';
+import { ConfirmationModal, RetryBlock, Pagination, RemarksInput } from '../components/ui';
 import Api from '../utils/Api';
 import { useRowHighlight, HIGHLIGHT_STYLE } from '../hooks/useRowHighlight';
+import { useExcelExport } from '../hooks/useExcelExport';
+import { usePagedRows } from '../hooks/usePagedRows';
 
 // ─── SVG Icon helper ──────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -38,6 +41,7 @@ const D = {
   tag:      'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z',
   chat:     'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z',
   refresh:  'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+  download: 'M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2',
 };
 
 // ─── Stat Card ────────────────────────────────
@@ -170,6 +174,8 @@ const GeneralEnquiries = () => {
   }, []);
 
   const highlightedId = useRowHighlight(enquiries, loading);
+  const { exporting, runExport } = useExcelExport('/enquiry/enquiryexport', 'general-enquiries');
+  const handleExport = () => runExport({ search: search.trim() || undefined });
 
   // ── Fetch list ──────────────────────────────
   const fetchEnquiries = useCallback(async () => {
@@ -202,6 +208,16 @@ const GeneralEnquiries = () => {
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to update status.');
     }
+  };
+
+  // ── Remarks (inline, per-row save via RemarksInput) ──────────
+  // Independent of status — never touches `status`.
+  const handleSaveRemarks = async (enq, remarks) => {
+    const res = await Api.post('/enquiry/enquiryupdate-remarks', { id: enq.id, remarks });
+    if (res.data?.status !== 1) {
+      throw new Error(res.data?.message || 'Failed to save remarks.');
+    }
+    setEnquiries(prev => prev.map(e => (e.id === enq.id ? { ...e, remarks: res.data.remarks } : e)));
   };
 
   // ── Delete ──────────────────────────────────
@@ -245,6 +261,10 @@ const GeneralEnquiries = () => {
              phone.includes(t)           || productCategory.includes(t);
     });
   }, [enquiries, search]);
+
+  const {
+    paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
+  } = usePagedRows('/general-enquiries', filtered, { jumpToId: searchParams.get('highlight') });
 
   // ─────────────────────────────────────────────
   return (
@@ -296,6 +316,22 @@ const GeneralEnquiries = () => {
         )}
       </div>
 
+      {/* Export */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleExport}
+          disabled={exporting || filtered.length === 0}
+          className="btn-outline"
+          title={filtered.length === 0 ? 'No matching records to export' : 'Export the filtered list to Excel'}
+        >
+          {exporting ? (
+            <><div className="spinner !w-4 !h-4" /> Exporting…</>
+          ) : (
+            <><Ic d={D.download} className="w-4 h-4" /> Export</>
+          )}
+        </button>
+      </div>
+
       {/* Table */}
       <div className="card !p-0 overflow-hidden">
         <div className="overflow-x-auto">
@@ -313,13 +349,14 @@ const GeneralEnquiries = () => {
                 <th>Message</th>
                 <th>Created Date</th>
                 <th>Status</th>
+                <th style={{ minWidth: 220 }}>Remarks</th>
                 <th className="text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="text-center py-16">
+                  <td colSpan={13} className="text-center py-16">
                     <div className="flex items-center justify-center gap-2 text-primary-400">
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading enquiries…</span>
@@ -328,13 +365,13 @@ const GeneralEnquiries = () => {
                 </tr>
               ) : fetchError ? (
                 <tr>
-                  <td colSpan={12}>
-                    <RetryBlock message={fetchError} onRetry={fetchEnquiries} colSpan={12} />
+                  <td colSpan={13}>
+                    <RetryBlock message={fetchError} onRetry={fetchEnquiries} colSpan={13} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="text-center py-16">
+                  <td colSpan={13} className="text-center py-16">
                     <div className="flex flex-col items-center gap-3 text-primary-300">
                       <div className="w-14 h-14 rounded-2xl bg-surface-100 flex items-center justify-center">
                         <Ic d={D.enquiry} className="w-7 h-7" />
@@ -348,7 +385,7 @@ const GeneralEnquiries = () => {
                   </td>
                 </tr>
               ) : (
-                filtered.map((enq, idx) => {
+                paged.map((enq, idx) => {
                   const enquiryId       = enq.reference_number || '';
                   const firstName       = enq.first_name       || enq.firstName       || '';
                   const lastName        = enq.last_name        || enq.lastName        || '';
@@ -367,7 +404,7 @@ const GeneralEnquiries = () => {
                       className={isDone ? 'opacity-60' : ''}
                       style={highlightedId === String(enq.id) ? HIGHLIGHT_STYLE : undefined}
                     >
-                      <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
+                      <td className="text-primary-400 text-xs font-mono">{rangeStart + idx}</td>
                       <td>
                         <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">
                           {enquiryId || '—'}
@@ -419,6 +456,9 @@ const GeneralEnquiries = () => {
                           : <span className="badge badge-warning text-[10px]">Pending</span>}
                       </td>
                       <td>
+                        <RemarksInput value={enq.remarks} onSave={(remarks) => handleSaveRemarks(enq, remarks)} />
+                      </td>
+                      <td>
                         <div className="flex items-center justify-center gap-1 flex-wrap">
                           <button
                             onClick={() => setViewItem(enq)}
@@ -464,16 +504,17 @@ const GeneralEnquiries = () => {
             </tbody>
           </table>
         </div>
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-100 flex items-center justify-between flex-wrap gap-2">
-            <p className="text-xs text-primary-400">
-              Showing <span className="font-medium text-primary-600">{filtered.length}</span> of{' '}
-              <span className="font-medium text-primary-600">{enquiries.length}</span> enquiries
-            </p>
-            <div className="flex items-center gap-1.5">
+        {!loading && total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-100">
+            <div className="flex items-center justify-end gap-1.5 mb-1">
               <div className="w-2 h-2 rounded-full bg-success-500" />
               <span className="text-xs text-primary-400">{doneCount} completed</span>
             </div>
+            <Pagination
+              page={page} totalPages={totalPages} onPageChange={setPage}
+              total={total} rowsPerPage={rowsPerPage} onRowsPerPageChange={setRowsPerPage}
+              itemLabel="enquiries"
+            />
           </div>
         )}
       </div>

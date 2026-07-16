@@ -126,6 +126,13 @@
   .data-table th {
     @apply px-4 py-3 font-medium text-primary-500 uppercase tracking-wide text-xs whitespace-nowrap;
   }
+  /* Sticky header — freezes the column titles at the top of the table's own
+     scroll area (see .card .overflow-x-auto below) once there are enough
+     rows to scroll. A solid background is required on the <th> itself (not
+     just <thead>) or scrolled-past body rows show through it while sticky. */
+  .data-table thead th {
+    @apply sticky top-0 z-[5] bg-primary-50;
+  }
   .data-table td { @apply px-4 py-3.5 border-b border-surface-100 text-primary-700; }
   .data-table tbody tr {
     @apply hover:bg-primary-50/50 transition-colors duration-100;
@@ -185,6 +192,15 @@
   .page-container .card .overflow-x-auto {
     overflow-x: auto;
     max-width: 100%;
+    /* Bounds the table to its own scrollable area so "position: sticky;
+       top: 0" on the header (see .data-table thead th above) has a real
+       scrolling context to freeze against — a page-level scroll can't do
+       this once overflow-x is set to auto on this wrapper (the browser
+       forces overflow-y to auto too, so this div is always the nearest
+       scroll container regardless). No scrollbar appears at all until a
+       table actually has enough rows to exceed this height. */
+    max-height: 65vh;
+    overflow-y: auto;
   }
 
   /* Search input */

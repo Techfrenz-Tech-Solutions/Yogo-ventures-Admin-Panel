@@ -14,10 +14,11 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal } from '../components/ui';
+import { ConfirmationModal, Pagination } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
 import { storageUrl } from '../utils/imageUrl';
+import { usePagedRows } from '../hooks/usePagedRows';
 
 // ─── Icon helper ──────────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -336,6 +337,10 @@ const NewArrivalsMaster = () => {
     return items.filter(i => i.product_name?.toLowerCase().includes(t));
   }, [items, search]);
 
+  const {
+    paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
+  } = usePagedRows('/new-arrivals', filtered);
+
   const recentCount = useMemo(() => items.filter(i => {
     const d = new Date(i.created_date);
     return !isNaN(d) && (Date.now() - d) / 86400000 <= 7;
@@ -423,9 +428,9 @@ const NewArrivalsMaster = () => {
                     </div>
                   </td>
                 </tr>
-              ) : filtered.map((item, idx) => (
+              ) : paged.map((item, idx) => (
                 <tr key={item.id}>
-                  <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
+                  <td className="text-primary-400 text-xs font-mono">{rangeStart + idx}</td>
                   <td className="font-medium text-primary-700">{item.product_name}</td>
                   <td>
                     {item.image ? (
@@ -481,9 +486,13 @@ const NewArrivalsMaster = () => {
             </tbody>
           </table>
         </div>
-        {filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-100 text-xs text-primary-400">
-            Showing {filtered.length} of {items.length} new arrivals
+        {total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-100">
+            <Pagination
+              page={page} totalPages={totalPages} onPageChange={setPage}
+              total={total} rowsPerPage={rowsPerPage} onRowsPerPageChange={setRowsPerPage}
+              itemLabel="new arrivals"
+            />
           </div>
         )}
       </div>

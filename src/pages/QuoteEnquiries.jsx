@@ -4,6 +4,7 @@
  *
  * GET  /quoteenquire/enquiry-quotelist          → list
  * POST /quoteenquire/enquiry-quoteupdate-status → mark as done  { id, status: "Mark as Done" }
+ * POST /quoteenquire/enquiry-quoteupdate-remarks → save remarks { id, remarks }
  * POST /quoteenquire/enquiry-quotedelete        → delete        { id }
  * GET  /country/countrylist                     → country dropdown (for filtering if needed)
  */
@@ -11,10 +12,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { format, isToday, isThisWeek } from 'date-fns';
-import { ConfirmationModal, RetryBlock } from '../components/ui';
+import { ConfirmationModal, RetryBlock, Pagination, RemarksInput } from '../components/ui';
 import toast from 'react-hot-toast';
 import Api from '../utils/Api';
 import { useRowHighlight, HIGHLIGHT_STYLE } from '../hooks/useRowHighlight';
+import { useExcelExport } from '../hooks/useExcelExport';
+import { usePagedRows } from '../hooks/usePagedRows';
+import './QuoteEnquiries.css';
 
 // ─── SVG Icon helper ──────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -38,6 +42,19 @@ const D = {
   globe:    'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   chat:     'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z',
   refresh:  'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+  download: 'M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2',
+  undo:     'M9 14l-4-4 4-4m-4 4h11a4 4 0 014 4v1',
+};
+
+// Minimum column widths (px) for the natural-width, horizontally-scrolling
+// table (see QuoteEnquiries.css) — set once here on the header <th> cells
+// as `minWidth`; with table-layout: auto a column only grows past this
+// floor if its content needs more room, and every body <td> lines up with
+// its header because both read from this same object.
+const QUOTE_COLUMN_WIDTHS = {
+  sno: 50, quoteId: 110, productName: 150, qty: 60, color: 90,
+  firstName: 100, lastName: 100, email: 190, country: 120,
+  phone: 130, message: 200, createdDate: 110, status: 100, remarks: 220, actions: 120,
 };
 
 // ─── Stat Card ────────────────────────────────
@@ -152,6 +169,8 @@ const QuoteEnquiries = () => {
   const [search,    setSearch]    = useState('');
   const [viewItem,  setViewItem]  = useState(null);
   const [confirm,   setConfirm]   = useState(null);
+  const [statusUpdating, setStatusUpdating] = useState({}); // { [enquiryId]: true } while a status request is in flight
+  const [statusConfirm,  setStatusConfirm]  = useState(null); // { enq, newStatus } while the confirmation popup is open
   const [searchParams] = useSearchParams();
 
   // A dashboard preview-card deep link always needs the full list visible —
@@ -162,6 +181,8 @@ const QuoteEnquiries = () => {
   }, []);
 
   const highlightedId = useRowHighlight(enquiries, loading);
+  const { exporting, runExport } = useExcelExport('/quoteenquire/enquiry-quoteexport', 'quote-enquiries');
+  const handleExport = () => runExport({ search: search.trim() || undefined });
 
   // ── Fetch list ──────────────────────────────
   const fetchEnquiries = useCallback(async () => {
@@ -182,18 +203,52 @@ const QuoteEnquiries = () => {
 
   useEffect(() => { fetchEnquiries(); }, [fetchEnquiries]);
 
-  // ── Mark as Done ─────────────────────────────
-  const handleMarkDone = async (enq) => {
+  // ── Status change (Mark as Done / Mark as Pending) ───────────
+  // Optimistic local update (no full-list refetch) so only the clicked
+  // row's status/highlight changes — rolled back to the prior value if the
+  // request fails. Returns true/false so the confirmation popup (see
+  // statusConfirm below) knows whether it's safe to close.
+  const handleStatusChange = async (enq, newStatus) => {
+    if (enq.status === newStatus || statusUpdating[enq.id]) return false;
+    const previousStatus = enq.status;
+
+    setStatusUpdating(p => ({ ...p, [enq.id]: true }));
+    setEnquiries(prev => prev.map(e => (e.id === enq.id ? { ...e, status: newStatus } : e)));
+
     try {
-      await Api.post('/quoteenquire/enquiry-quoteupdate-status', {
+      const res = await Api.post('/quoteenquire/enquiry-quoteupdate-status', {
         id:     enq.id,
-        status: 'Mark as Done',
+        status: newStatus,
       });
-      toast.success('Marked as done.');
-      fetchEnquiries();
+      if (res.data?.status !== 1) {
+        throw new Error(res.data?.message || 'Failed to update status.');
+      }
+      toast.success(newStatus === 'Mark as Done' ? 'Marked as done.' : 'Marked as pending.');
+      return true;
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to update status.');
+      setEnquiries(prev => prev.map(e => (e.id === enq.id ? { ...e, status: previousStatus } : e)));
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to update status.');
+      return false;
+    } finally {
+      setStatusUpdating(p => {
+        const next = { ...p };
+        delete next[enq.id];
+        return next;
+      });
     }
+  };
+
+  // ── Remarks (inline, per-row save via RemarksInput) ──────────
+  // Independent of status — never touches `status` or any other field, and
+  // never triggers the quote confirmation email. Updates local state with
+  // the server-confirmed value on success; throws on failure so
+  // RemarksInput rolls its own input back to the last saved value.
+  const handleSaveRemarks = async (enq, remarks) => {
+    const res = await Api.post('/quoteenquire/enquiry-quoteupdate-remarks', { id: enq.id, remarks });
+    if (res.data?.status !== 1) {
+      throw new Error(res.data?.message || 'Failed to save remarks.');
+    }
+    setEnquiries(prev => prev.map(e => (e.id === enq.id ? { ...e, remarks: res.data.remarks } : e)));
   };
 
   // ── Delete ──────────────────────────────────
@@ -237,6 +292,10 @@ const QuoteEnquiries = () => {
              country.includes(t)     || color.includes(t);
     });
   }, [enquiries, search]);
+
+  const {
+    paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
+  } = usePagedRows('/quote-enquiries', filtered, { jumpToId: searchParams.get('highlight') });
 
   // ─────────────────────────────────────────────
   return (
@@ -288,32 +347,49 @@ const QuoteEnquiries = () => {
         )}
       </div>
 
+      {/* Export */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleExport}
+          disabled={exporting || filtered.length === 0}
+          className="btn-outline"
+          title={filtered.length === 0 ? 'No matching records to export' : 'Export the filtered list to Excel'}
+        >
+          {exporting ? (
+            <><div className="spinner !w-4 !h-4" /> Exporting…</>
+          ) : (
+            <><Ic d={D.download} className="w-4 h-4" /> Export</>
+          )}
+        </button>
+      </div>
+
       {/* Table */}
       <div className="card !p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="data-table">
+        <div className="overflow-x-auto qe-table-wrap">
+          <table className="data-table qe-table">
             <thead>
               <tr>
-                <th className="w-10">S.No</th>
-                <th>Quote ID</th>
-                <th>Product Name</th>
-                <th>Qty</th>
-                <th>Color</th>
-                <th>First Name</th>
-                <th>Last Name</th>
-                <th>Email ID</th>
-                <th>Country</th>
-                <th>Phone Number</th>
-                <th>Message</th>
-                <th>Created Date</th>
-                <th>Status</th>
-                <th className="text-center">Actions</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.sno }}>S.No</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.quoteId }}>Quote ID</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.productName }}>Product Name</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.qty }}>Qty</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.color }}>Color</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.firstName }}>First Name</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.lastName }}>Last Name</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.email }}>Email ID</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.country }}>Country</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.phone }}>Phone Number</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.message }}>Message</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.createdDate }}>Created Date</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.status }}>Status</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.remarks }}>Remarks</th>
+                <th style={{ minWidth: QUOTE_COLUMN_WIDTHS.actions }} className="text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={14} className="text-center py-16">
+                  <td colSpan={15} className="text-center py-16">
                     <div className="flex items-center justify-center gap-2 text-primary-400">
                       <div className="spinner !w-5 !h-5" />
                       <span>Loading enquiries…</span>
@@ -322,13 +398,13 @@ const QuoteEnquiries = () => {
                 </tr>
               ) : fetchError ? (
                 <tr>
-                  <td colSpan={14}>
-                    <RetryBlock message={fetchError} onRetry={fetchEnquiries} colSpan={14} />
+                  <td colSpan={15}>
+                    <RetryBlock message={fetchError} onRetry={fetchEnquiries} colSpan={15} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="text-center py-16">
+                  <td colSpan={15} className="text-center py-16">
                     <div className="flex flex-col items-center gap-3 text-primary-300">
                       <div className="w-14 h-14 rounded-2xl bg-surface-100 flex items-center justify-center">
                         <Ic d={D.inbox} className="w-7 h-7" />
@@ -342,7 +418,7 @@ const QuoteEnquiries = () => {
                   </td>
                 </tr>
               ) : (
-                filtered.map((enq, idx) => {
+                paged.map((enq, idx) => {
                   const quoteId     = enq.reference_number || '';
                   const productName = enq.product_name  || enq.productName || '';
                   const quantity    = enq.quantity      || enq.qty         || '';
@@ -363,36 +439,36 @@ const QuoteEnquiries = () => {
                       className={isDone ? 'opacity-60' : ''}
                       style={highlightedId === String(enq.id) ? HIGHLIGHT_STYLE : undefined}
                     >
-                      <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
+                      <td className="text-primary-400 text-xs font-mono">{rangeStart + idx}</td>
                       <td>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">
+                        <span className="text-primary-600 font-mono font-medium qe-nowrap" style={{ fontSize: '11.5px' }} title={quoteId}>
                           {quoteId || '—'}
                         </span>
                       </td>
                       <td>
-                        <span className="font-medium text-primary-700 text-sm">{productName}</span>
+                        <span className="font-medium text-primary-700 qe-clamp-2" title={productName}>{productName}</span>
                       </td>
                       <td>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 text-accent-600 text-xs font-semibold">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-accent-50 text-accent-600 text-xs font-semibold qe-nowrap">
                           {quantity}
                         </span>
                       </td>
                       <td>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-surface-200 text-primary-600 text-xs font-medium">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-surface-200 text-primary-600 text-xs font-medium qe-truncate max-w-full" title={color}>
                           {color}
                         </span>
                       </td>
-                      <td className="text-primary-700 text-sm">{firstName}</td>
-                      <td className="text-primary-700 text-sm">{lastName}</td>
+                      <td className="text-primary-700 text-sm qe-truncate" title={firstName}>{firstName}</td>
+                      <td className="text-primary-700 text-sm qe-truncate" title={lastName}>{lastName}</td>
                       <td>
-                        <a href={`mailto:${email}`} className="text-primary-500 hover:text-primary-700 text-xs underline underline-offset-2 transition-colors">
+                        <a href={`mailto:${email}`} className="text-primary-500 hover:text-primary-700 text-xs underline underline-offset-2 transition-colors qe-truncate block" title={email}>
                           {email}
                         </a>
                       </td>
                       <td>
-                        <span className="inline-flex items-center gap-1 text-xs text-primary-600">
+                        <span className="inline-flex items-center gap-1 text-xs text-primary-600 qe-truncate max-w-full">
                           <Ic d={D.globe} className="w-3 h-3 text-primary-300 flex-shrink-0" />
-                          {country}
+                          <span className="qe-truncate">{country}</span>
                         </span>
                       </td>
                       <td>
@@ -400,7 +476,7 @@ const QuoteEnquiries = () => {
                           {phone}
                         </a>
                       </td>
-                      <td className="max-w-[160px]">
+                      <td>
                         <p className="text-primary-500 text-xs line-clamp-2 leading-relaxed" title={message}>
                           {message}
                         </p>
@@ -416,11 +492,14 @@ const QuoteEnquiries = () => {
                       </td>
                       <td>
                         {isDone
-                          ? <span className="badge badge-success text-[10px]">Done</span>
-                          : <span className="badge badge-warning text-[10px]">Pending</span>}
+                          ? <span className="badge badge-success text-[10px] qe-nowrap">Done</span>
+                          : <span className="badge badge-warning text-[10px] qe-nowrap">Pending</span>}
                       </td>
                       <td>
-                        <div className="flex items-center justify-center gap-1 flex-wrap">
+                        <RemarksInput value={enq.remarks} onSave={(remarks) => handleSaveRemarks(enq, remarks)} />
+                      </td>
+                      <td>
+                        <div className="flex items-center justify-center gap-0.5 flex-wrap">
                           <button
                             onClick={() => setViewItem(enq)}
                             className="btn-icon text-info-500 hover:text-info-600 hover:bg-info-50"
@@ -441,16 +520,20 @@ const QuoteEnquiries = () => {
                           >
                             <Ic d={D.trash} />
                           </button>
-                          {!isDone && (
+                          {isDone ? (
                             <button
-                              onClick={() =>
-                                setConfirm({
-                                  title:     'Mark as Done',
-                                  message:   `Mark enquiry from ${firstName} ${lastName} as done?`,
-                                  onConfirm: () => handleMarkDone(enq),
-                                })
-                              }
-                              className="btn-icon text-success-500 hover:text-success-600 hover:bg-success-50"
+                              onClick={() => setStatusConfirm({ enq, newStatus: 'Pending' })}
+                              disabled={!!statusUpdating[enq.id]}
+                              className="btn-icon text-warning-500 hover:text-warning-600 hover:bg-warning-50 disabled:opacity-50"
+                              title="Mark as Pending"
+                            >
+                              <Ic d={D.undo} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setStatusConfirm({ enq, newStatus: 'Mark as Done' })}
+                              disabled={!!statusUpdating[enq.id]}
+                              className="btn-icon text-success-500 hover:text-success-600 hover:bg-success-50 disabled:opacity-50"
                               title="Mark as Done"
                             >
                               <Ic d={D.done} />
@@ -465,16 +548,17 @@ const QuoteEnquiries = () => {
             </tbody>
           </table>
         </div>
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-100 flex items-center justify-between flex-wrap gap-2">
-            <p className="text-xs text-primary-400">
-              Showing <span className="font-medium text-primary-600">{filtered.length}</span> of{' '}
-              <span className="font-medium text-primary-600">{enquiries.length}</span> enquiries
-            </p>
-            <div className="flex items-center gap-1.5">
+        {!loading && total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-100">
+            <div className="flex items-center justify-end gap-1.5 mb-1">
               <div className="w-2 h-2 rounded-full bg-success-500" />
               <span className="text-xs text-primary-400">{doneCount} completed</span>
             </div>
+            <Pagination
+              page={page} totalPages={totalPages} onPageChange={setPage}
+              total={total} rowsPerPage={rowsPerPage} onRowsPerPageChange={setRowsPerPage}
+              itemLabel="enquiries"
+            />
           </div>
         )}
       </div>
@@ -488,6 +572,23 @@ const QuoteEnquiries = () => {
           onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
           title={confirm.title}
           message={confirm.message}
+        />
+      )}
+      {statusConfirm && (
+        <ConfirmationModal
+          open={!!statusConfirm}
+          onClose={() => setStatusConfirm(null)}
+          // No manual setStatusConfirm(null) here — ConfirmationModal only
+          // closes this one itself once handleStatusChange resolves true,
+          // so a failed update (it returns false) leaves the popup open.
+          onConfirm={() => handleStatusChange(statusConfirm.enq, statusConfirm.newStatus)}
+          title="Change Quote Status"
+          message={`Are you sure you want to change quote ${statusConfirm.enq.reference_number || `#${statusConfirm.enq.id}`} from ${
+            statusConfirm.enq.status === 'Mark as Done' ? 'Done' : 'Pending'
+          } ${statusConfirm.newStatus === 'Pending' ? 'back to' : 'to'} ${statusConfirm.newStatus === 'Mark as Done' ? 'Done' : 'Pending'}?`}
+          confirmText="Confirm"
+          confirmingText="Updating…"
+          type="primary"
         />
       )}
     </div>

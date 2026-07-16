@@ -20,10 +20,11 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { ConfirmationModal } from '../components/ui';
+import { ConfirmationModal, Pagination } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
 import { storageUrl } from '../utils/imageUrl';
+import { usePagedRows } from '../hooks/usePagedRows';
 
 // ─── Tiny SVG icon ────────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -623,6 +624,10 @@ const ProductMaster = () => {
     );
   }, [products, search]);
 
+  const {
+    paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
+  } = usePagedRows('/product-master', filtered);
+
   const recentCount = useMemo(() => products.filter(p => {
     const d = new Date(p.created_date);
     return !isNaN(d) && (Date.now() - d) / 86400000 <= 7;
@@ -706,9 +711,9 @@ const ProductMaster = () => {
                       : 'No products match your search.'}
                   </td>
                 </tr>
-              ) : filtered.map((prod, idx) => (
+              ) : paged.map((prod, idx) => (
                 <tr key={prod.id}>
-                  <td className="text-primary-400 text-xs font-mono">{idx + 1}</td>
+                  <td className="text-primary-400 text-xs font-mono">{rangeStart + idx}</td>
                   <td>
                     <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">
                       {prod.product_code}
@@ -774,9 +779,13 @@ const ProductMaster = () => {
             </tbody>
           </table>
         </div>
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-surface-100 text-xs text-primary-400">
-            Showing {filtered.length} of {products.length} products
+        {!loading && total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-100">
+            <Pagination
+              page={page} totalPages={totalPages} onPageChange={setPage}
+              total={total} rowsPerPage={rowsPerPage} onRowsPerPageChange={setRowsPerPage}
+              itemLabel="products"
+            />
           </div>
         )}
       </div>

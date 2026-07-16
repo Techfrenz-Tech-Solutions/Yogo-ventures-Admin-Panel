@@ -5,9 +5,10 @@
  * Pagination, ConfirmDialog, EmptyState, Spinner
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, AlertTriangle, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import clsx from 'clsx';
+import toast from 'react-hot-toast';
 
 // ─── Button ────────────────────────────────────
 export const Button = ({
@@ -103,11 +104,47 @@ export const Modal = ({ open, onClose, title, children, size = 'md', footer }) =
 };
 
 // ─── Confirmation Modal ────────────────────────
-export const ConfirmationModal = ({ open, onClose, onConfirm, title = 'Confirm Action', message, confirmText = 'Confirm', cancelText = 'Cancel', type = 'danger' }) => {
-  const handleConfirm = () => {
-    onConfirm();
-    onClose();
+export const ConfirmationModal = ({
+  open, onClose, onConfirm, title = 'Confirm Action', message,
+  confirmText = 'Confirm', confirmingText, cancelText = 'Cancel', type = 'danger',
+}) => {
+  // `confirming` covers callers whose onConfirm is async (e.g. an API call)
+  // and want the popup to stay open — with the Confirm button disabled and
+  // showing confirmingText — until it resolves, only closing on success.
+  // Backward compatible: a plain synchronous onConfirm (the vast majority
+  // of existing callers, e.g. delete confirmations) returns undefined,
+  // `await`s immediately, and closes exactly as before — nothing here
+  // changes their behaviour.
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleConfirm = async () => {
+    setError('');
+    setConfirming(true);
+    try {
+      const result = await onConfirm();
+      // An explicit `false` return (not just falsy — undefined/void from a
+      // sync caller must still count as success) means "the action failed,
+      // keep the popup open" — the caller is expected to have already
+      // shown its own error (e.g. a toast) and rolled back any optimistic
+      // state, so nothing further is required here beyond staying open.
+      if (result === false) {
+        setConfirming(false);
+        return;
+      }
+      onClose();
+    } catch (err) {
+      setConfirming(false);
+      setError(err?.message || 'Something went wrong. Please try again.');
+      return;
+    }
+    setConfirming(false);
   };
+
+  // Ignore every close path (X button, overlay click, Escape key, Cancel)
+  // while a confirm request is in flight, so it can't be dismissed out
+  // from under a pending update.
+  const guardedClose = () => { if (!confirming) onClose(); };
 
   const buttonClasses = {
     danger: 'btn-danger',
@@ -118,21 +155,22 @@ export const ConfirmationModal = ({ open, onClose, onConfirm, title = 'Confirm A
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={guardedClose}
       title={title}
       size="sm"
       footer={
         <>
-          <button onClick={onClose} className="btn-ghost">
+          <button onClick={guardedClose} disabled={confirming} className="btn-ghost">
             {cancelText}
           </button>
-          <button onClick={handleConfirm} className={buttonClasses[type]}>
-            {confirmText}
+          <button onClick={handleConfirm} disabled={confirming} className={buttonClasses[type]}>
+            {confirming ? (confirmingText || `${confirmText}…`) : confirmText}
           </button>
         </>
       }
     >
       <p className="text-primary-600">{message}</p>
+      {error && <p className="text-danger-600 text-sm mt-2">{error}</p>}
     </Modal>
   );
 };
@@ -208,50 +246,79 @@ export const DataTable = ({ columns, data = [], loading = false, emptyMessage = 
 };
 
 // ─── Pagination ────────────────────────────────
-export const Pagination = ({ page, totalPages, onPageChange, total, limit }) => {
-  if (totalPages <= 1) return null;
-  const start = (page - 1) * limit + 1;
-  const end = Math.min(page * limit, total);
+// rowsPerPage/onRowsPerPageChange are optional — when provided (the admin
+// table pages, via hooks/usePagedRows.js), the summary + a "Rows per
+// page" selector always render, even with a single page, since seeing/
+// changing the page size shouldn't depend on there being multiple pages.
+// Without them (a couple of older pages that predate this selector), the
+// component keeps its original behaviour exactly: hidden entirely when
+// there's nothing to paginate.
+export const Pagination = ({
+  page, totalPages, onPageChange, total, limit,
+  rowsPerPage, onRowsPerPageChange, rowsPerPageOptions = [10, 50, 100, 200], itemLabel = 'entries',
+}) => {
+  const hasRowsPerPage = typeof onRowsPerPageChange === 'function';
+  if (!hasRowsPerPage && totalPages <= 1) return null;
+
+  const effectiveLimit = hasRowsPerPage ? rowsPerPage : limit;
+  const start = total === 0 ? 0 : (page - 1) * effectiveLimit + 1;
+  const end = Math.min(page * effectiveLimit, total);
 
   return (
-    <div className="flex items-center justify-between mt-4 px-1">
-      <p className="text-sm text-surface-400">
-        Showing <span className="font-medium text-primary-600">{start}–{end}</span> of{' '}
-        <span className="font-medium text-primary-600">{total}</span>
-      </p>
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => onPageChange(page - 1)}
-          disabled={page <= 1}
-          className="btn-icon disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <ChevronLeft size={16} className="text-primary-500" />
-        </button>
-        {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-          const p = i + 1;
-          return (
-            <button
-              key={p}
-              onClick={() => onPageChange(p)}
-              className={clsx(
-                'w-8 h-8 text-sm rounded-lg font-medium transition-colors',
-                p === page
-                  ? 'bg-primary-500 text-white'
-                  : 'text-primary-500 hover:bg-surface-100'
-              )}
+    <div className="flex flex-wrap items-center justify-between gap-3 mt-4 px-1">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <p className="text-sm text-surface-400">
+          Showing <span className="font-medium text-primary-600">{start}–{end}</span> of{' '}
+          <span className="font-medium text-primary-600">{total}</span>{hasRowsPerPage ? ` ${itemLabel}` : ''}
+        </p>
+        {hasRowsPerPage && (
+          <label className="flex items-center gap-1.5 text-sm text-surface-400 whitespace-nowrap">
+            Rows per page:
+            <select
+              className="form-select !py-1 !pr-7 !text-sm !w-auto"
+              value={rowsPerPage}
+              onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
             >
-              {p}
-            </button>
-          );
-        })}
-        <button
-          onClick={() => onPageChange(page + 1)}
-          disabled={page >= totalPages}
-          className="btn-icon disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <ChevronRight size={16} className="text-primary-500" />
-        </button>
+              {rowsPerPageOptions.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        )}
       </div>
+      {totalPages > 1 && (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onPageChange(page - 1)}
+            disabled={page <= 1}
+            className="btn-icon disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft size={16} className="text-primary-500" />
+          </button>
+          {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+            const p = i + 1;
+            return (
+              <button
+                key={p}
+                onClick={() => onPageChange(p)}
+                className={clsx(
+                  'w-8 h-8 text-sm rounded-lg font-medium transition-colors',
+                  p === page
+                    ? 'bg-primary-500 text-white'
+                    : 'text-primary-500 hover:bg-surface-100'
+                )}
+              >
+                {p}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => onPageChange(page + 1)}
+            disabled={page >= totalPages}
+            className="btn-icon disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ChevronRight size={16} className="text-primary-500" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -366,3 +433,81 @@ export const RetryBlock = ({ message = 'Failed to load data.', onRetry, colSpan 
     </td>
   </tr>
 );
+
+// ─── Remarks Input ─────────────────────────────
+// Inline, per-row editable text field shared by every table that has a
+// REMARKS column (Quote/Contact/General/Sample Enquiries, Order Tracking).
+// One instance per row, each with its own local draft/saved/saving state —
+// never a single shared value across rows. Saves on blur or Enter, restores
+// the last saved value on Escape, skips the request entirely if the trimmed
+// value hasn't changed, and rolls back to the last saved value on failure.
+//
+// `onSave(trimmedValue)` must return a Promise that resolves on success and
+// rejects (or throws) on failure — the caller owns the actual API call and
+// any persistent (non-remarks) state update; this component only owns the
+// input's own draft/saved/saving/error lifecycle.
+export const RemarksInput = ({ value, onSave, placeholder = 'Add remarks', className = '' }) => {
+  const [text, setText] = useState(value ?? '');
+  const [saving, setSaving] = useState(false);
+  const savedRef = useRef(value ?? '');
+  const savingRef = useRef(false);
+  const skipBlurRef = useRef(false);
+
+  // Picks up an external refresh (e.g. a full refetch) as long as this row
+  // isn't mid-edit/mid-save, so a background reload can't clobber unsaved
+  // typing or race a save that's still in flight.
+  useEffect(() => {
+    if (!savingRef.current) {
+      setText(value ?? '');
+      savedRef.current = value ?? '';
+    }
+  }, [value]);
+
+  const commit = async (draft) => {
+    const trimmed = draft.trim();
+    if (trimmed === (savedRef.current || '')) {
+      if (trimmed !== draft) setText(trimmed);
+      return;
+    }
+    if (savingRef.current) return; // one in-flight save per row at a time
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await onSave(trimmed);
+      savedRef.current = trimmed;
+      setText(trimmed);
+    } catch (err) {
+      setText(savedRef.current);
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to save remarks.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      className={clsx('form-input text-sm', className)}
+      style={{ minWidth: 220 }}
+      value={text}
+      placeholder={placeholder}
+      disabled={saving}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        if (skipBlurRef.current) { skipBlurRef.current = false; return; }
+        commit(text);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit(text);
+        } else if (e.key === 'Escape') {
+          setText(savedRef.current);
+          skipBlurRef.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+};
