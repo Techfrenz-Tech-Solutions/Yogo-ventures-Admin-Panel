@@ -260,7 +260,6 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
     if (!form.code.trim())          { toast.error('Product code is required.');     return; }
     if (!form.name.trim())          { toast.error('Product name is required.');     return; }
     if (!form.categoryName)         { toast.error('Please select a category.');     return; }
-    if (!form.subCategoryName)      { toast.error('Please select a sub category.'); return; }
     setSaving(true);
     await onSave({
       ...form,
@@ -333,12 +332,11 @@ const ProductModal = ({ product, categories, subCategories, onSave, onClose }) =
                 )}
               </div>
               <div className="form-group !mb-0">
-                <label className="form-label">Sub Category <span className="text-danger-500">*</span></label>
+                <label className="form-label">Sub Category</label>
                 <select
                   className="form-select"
                   value={form.subCategoryName}
                   onChange={e => set('subCategoryName', e.target.value)}
-                  required
                   disabled={!form.categoryName}
                 >
                   <option value="">— Select Sub Category —</option>
@@ -551,7 +549,7 @@ const ProductMaster = () => {
     fd.append('product_code', form.code);
     fd.append('product_name', form.name);
     fd.append('category_name', form.categoryName);
-    fd.append('sub_category_name', form.subCategoryName);
+    if (form.subCategoryName) fd.append('sub_category_name', form.subCategoryName);
     fd.append('product_description', form.description);
 
     if (form.indexImage && typeof form.indexImage === 'object') {
