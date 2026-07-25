@@ -19,12 +19,14 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ConfirmationModal, Pagination } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
 import { storageUrl } from '../utils/imageUrl';
 import { usePagedRows } from '../hooks/usePagedRows';
+import { useRowHighlight, HIGHLIGHT_STYLE } from '../hooks/useRowHighlight';
 
 // ─── Tiny SVG icon ────────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -505,6 +507,8 @@ const ProductMaster = () => {
   const [modal,         setModal]         = useState(null); // null | 'add' | product-obj
   const [viewItem,      setViewItem]      = useState(null);
   const [confirm,       setConfirm]       = useState(null);
+  const [searchParams] = useSearchParams();
+  const highlightParam = searchParams.get('highlight');
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -542,6 +546,10 @@ const ProductMaster = () => {
     fetchSubCategories();
     fetchProducts();
   }, [fetchCategories, fetchSubCategories, fetchProducts]);
+
+  useEffect(() => {
+    if (highlightParam) setSearch('');
+  }, [highlightParam]);
 
   // Build the multipart form body shared by create/update
   const buildFormData = (form) => {
@@ -624,7 +632,9 @@ const ProductMaster = () => {
 
   const {
     paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
-  } = usePagedRows('/product-master', filtered);
+  } = usePagedRows('/product-master', filtered, { jumpToId: highlightParam });
+
+  const highlightedId = useRowHighlight(products, loading);
 
   const recentCount = useMemo(() => products.filter(p => {
     const d = new Date(p.created_date);
@@ -710,7 +720,11 @@ const ProductMaster = () => {
                   </td>
                 </tr>
               ) : paged.map((prod, idx) => (
-                <tr key={prod.id}>
+                <tr
+                  key={prod.id}
+                  data-row-id={prod.id}
+                  style={highlightedId === String(prod.id) ? HIGHLIGHT_STYLE : undefined}
+                >
                   <td className="text-primary-400 text-xs font-mono">{rangeStart + idx}</td>
                   <td>
                     <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">

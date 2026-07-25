@@ -19,11 +19,13 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { format, isToday, isThisWeek } from 'date-fns';
 import { ConfirmationModal, RetryBlock, Pagination, RemarksInput } from '../components/ui';
 import toast from 'react-hot-toast';
 import Api from '../utils/Api';
 import { usePagedRows } from '../hooks/usePagedRows';
+import { useRowHighlight, HIGHLIGHT_STYLE } from '../hooks/useRowHighlight';
 import './SampleEnquiries.css';
 
 // Minimum column widths (px) for the natural-width, horizontally-scrolling
@@ -307,6 +309,8 @@ const SampleEnquiries = () => {
   const [confirm,     setConfirm]     = useState(null);
   const [statusConfirm, setStatusConfirm] = useState(null); // { item, newStatus } while the confirmation popup is open
   const [statusUpdating, setStatusUpdating] = useState({}); // { [enquiry_id]: true } while a status request is in flight
+  const [searchParams] = useSearchParams();
+  const highlightParam = searchParams.get('highlight');
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -341,6 +345,10 @@ const SampleEnquiries = () => {
   }, []);
 
   useEffect(() => { fetchItems(); fetchCustomers(); fetchProducts(); }, [fetchItems, fetchCustomers, fetchProducts]);
+
+  useEffect(() => {
+    if (highlightParam) setSearch('');
+  }, [highlightParam]);
 
   const nextEnquiryId = useMemo(
     () => items.reduce((max, i) => Math.max(max, Number(i.enquiry_id) || 0), 0) + 1,
@@ -444,7 +452,12 @@ const SampleEnquiries = () => {
 
   const {
     paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
-  } = usePagedRows('/sample-enquiries', filtered);
+  } = usePagedRows('/sample-enquiries', filtered, {
+    jumpToId: highlightParam,
+    jumpToIdKey: 'enquiry_id',
+  });
+
+  const highlightedId = useRowHighlight(items, loading, 'enquiry_id');
 
   const totalCount = items.length;
   const todayCount  = items.filter(i => i.enquired_on && isToday(new Date(i.enquired_on))).length;
@@ -622,7 +635,12 @@ const SampleEnquiries = () => {
                   </div>
                 </td></tr>
               ) : paged.map((item, idx) => (
-                <tr key={item.enquiry_id} className={item.status==='done' ? 'opacity-60' : ''}>
+                <tr
+                  key={item.enquiry_id}
+                  data-row-id={item.enquiry_id}
+                  className={item.status==='done' ? 'opacity-60' : ''}
+                  style={highlightedId === String(item.enquiry_id) ? HIGHLIGHT_STYLE : undefined}
+                >
                   {columns.map(col => (
                     <td key={col.key} className={col.cellClassName}>{col.render(item, idx)}</td>
                   ))}

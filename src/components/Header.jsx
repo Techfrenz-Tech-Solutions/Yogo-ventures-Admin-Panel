@@ -10,7 +10,7 @@
  * timestamps from).
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
@@ -52,12 +52,17 @@ const Header = ({ onMenuToggle }) => {
   const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [dismissed, setDismissed] = useState(readDismissed);
   const profileRef = useRef(null);
   const notifRef = useRef(null);
+  const searchRef = useRef(null);
 
   // Pull real recent activity from the backend (not mocked data) — see
   // itemMasterController.getRecentActivity for what feeds this.
@@ -89,6 +94,68 @@ const Header = ({ onMenuToggle }) => {
 
   const visibleNotifications = notifications.filter(n => !dismissed.has(n.key));
   const unreadCount = visibleNotifications.length;
+  const trimmedSearch = searchQuery.trim();
+  const showSearchDropdown = searchOpen && trimmedSearch.length >= 2;
+  const groupedSearchResults = useMemo(() => {
+    return searchResults.reduce((acc, result) => {
+      const key = result.type || 'Other';
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(result);
+      return acc;
+    }, {});
+  }, [searchResults]);
+
+  useEffect(() => {
+    if (!searchOpen || trimmedSearch.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      setSearchError('');
+      setActiveSearchIndex(0);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchLoading(true);
+    setSearchError('');
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await Api.get('/dashboard/global-search', {
+          params: { q: trimmedSearch, limit: 6 },
+        });
+        if (cancelled) return;
+        const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+        setSearchResults(list);
+        setActiveSearchIndex(0);
+      } catch (err) {
+        if (cancelled) return;
+        setSearchResults([]);
+        setSearchError(err?.response?.data?.message || 'Search failed.');
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchOpen, trimmedSearch]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchLoading(false);
+    setSearchError('');
+    setActiveSearchIndex(0);
+  }, []);
+
+  const openSearchResult = useCallback((result) => {
+    if (!result) return;
+    navigate(result.route || `${result.path}?highlight=${encodeURIComponent(result.highlight)}`);
+    closeSearch();
+  }, [navigate, closeSearch]);
 
   // Mark as read = dismiss locally (persisted so it stays dismissed after reload/re-poll)
   const deleteNotification = (key, e) => {
@@ -131,12 +198,31 @@ const Header = ({ onMenuToggle }) => {
 
   useEffect(() => {
     const handler = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) closeSearch();
       if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
       if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  }, [closeSearch]);
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      closeSearch();
+      return;
+    }
+    if (!showSearchDropdown || searchResults.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSearchIndex(i => (i + 1) % searchResults.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSearchIndex(i => (i - 1 + searchResults.length) % searchResults.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      openSearchResult(searchResults[activeSearchIndex]);
+    }
+  };
 
   const handleLogout = async () => { await logout(); navigate('/login'); };
 
@@ -154,19 +240,69 @@ const Header = ({ onMenuToggle }) => {
       {/* Right controls */}
       <div className="flex items-center gap-1.5">
         {/* Search */}
-        <div className="relative">
+        <div className="relative" ref={searchRef}>
           {searchOpen ? (
-            <div className="flex items-center gap-2 bg-surface-100 rounded-xl px-3 py-2 border border-primary-300 animate-slide-in">
-              <Icon path="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0" className="w-4 h-4 text-primary-400" />
-              <input
-                autoFocus
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search products, orders..."
-                className="bg-transparent text-sm text-primary-700 placeholder-primary-300 outline-none w-52"
-                onBlur={() => { setSearchOpen(false); setSearchQuery(''); }}
-              />
-            </div>
+            <>
+              <div className="flex items-center gap-2 bg-surface-100 rounded-xl px-3 py-2 border border-primary-300 animate-slide-in">
+                <Icon path="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0" className="w-4 h-4 text-primary-400" />
+                <input
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search admin data..."
+                  className="bg-transparent text-sm text-primary-700 placeholder-primary-300 outline-none w-64"
+                />
+                {searchLoading && <div className="spinner !w-3.5 !h-3.5" />}
+              </div>
+              {showSearchDropdown && (
+                <div className="absolute right-0 top-full mt-2 w-[min(26rem,calc(100vw-2rem))] max-h-[70vh] overflow-y-auto bg-white rounded-2xl shadow-modal border border-surface-100 z-50 animate-slide-up">
+                  {searchLoading && searchResults.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-primary-300">Searching...</div>
+                  ) : searchError ? (
+                    <div className="px-4 py-6 text-sm text-danger-500">{searchError}</div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-primary-300">No results found</div>
+                  ) : (
+                    Object.entries(groupedSearchResults).map(([type, results]) => (
+                      <div key={type} className="py-2 border-b border-surface-50 last:border-b-0">
+                        <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary-300">
+                          {type}
+                        </div>
+                        {results.map((result) => {
+                          const flatIndex = searchResults.indexOf(result);
+                          const isActive = flatIndex === activeSearchIndex;
+                          return (
+                            <button
+                              key={result.id}
+                              type="button"
+                              onMouseEnter={() => setActiveSearchIndex(flatIndex)}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => openSearchResult(result)}
+                              className={`w-full text-left px-3 py-2.5 transition-colors ${isActive ? 'bg-primary-50' : 'hover:bg-surface-50'}`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-primary-700 truncate">
+                                    {result.matched_value || result.description}
+                                  </p>
+                                  <p className="text-xs text-primary-400 truncate mt-0.5">
+                                    {result.description}
+                                  </p>
+                                </div>
+                                <span className="text-[11px] text-primary-300 whitespace-nowrap mt-0.5">
+                                  {result.page}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <button onClick={() => setSearchOpen(true)} className="btn-icon text-primary-500">
               <Icon path="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0" />

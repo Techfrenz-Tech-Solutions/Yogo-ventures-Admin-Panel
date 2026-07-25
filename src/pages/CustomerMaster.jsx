@@ -14,12 +14,14 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ConfirmationModal, RetryBlock, Pagination } from '../components/ui';
 import { format } from 'date-fns';
 import Api from '../utils/Api';
 import { useExcelExport } from '../hooks/useExcelExport';
 import { usePagedRows } from '../hooks/usePagedRows';
+import { useRowHighlight, HIGHLIGHT_STYLE } from '../hooks/useRowHighlight';
 
 // ─── SVG Icon helper ──────────────────────────
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -219,6 +221,8 @@ const CustomerMaster = () => {
   const [confirm,   setConfirm]   = useState(null);
   const { exporting, runExport } = useExcelExport('/customer/customerexport', 'customers');
   const handleExport = () => runExport({ search: search.trim() || undefined });
+  const [searchParams] = useSearchParams();
+  const highlightParam = searchParams.get('highlight');
 
   // ── Fetch country dropdown ───────────────────
   const fetchCountries = useCallback(async () => {
@@ -252,6 +256,10 @@ const CustomerMaster = () => {
     fetchCountries();
     fetchCustomers();
   }, [fetchCountries, fetchCustomers]);
+
+  useEffect(() => {
+    if (highlightParam) setSearch('');
+  }, [highlightParam]);
 
   // ── Create ──────────────────────────────────
   const handleCreate = async (form) => {
@@ -332,7 +340,9 @@ const CustomerMaster = () => {
 
   const {
     paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total,
-  } = usePagedRows('/customer-master', filtered);
+  } = usePagedRows('/customer-master', filtered, { jumpToId: highlightParam });
+
+  const highlightedId = useRowHighlight(customers, loading);
 
   // ── Recently added (last 7 days) ─────────────
   const recentCount = useMemo(() => customers.filter(c => {
@@ -453,7 +463,11 @@ const CustomerMaster = () => {
                 </tr>
               ) : (
                 paged.map((cust) => (
-                  <tr key={cust.id}>
+                  <tr
+                    key={cust.id}
+                    data-row-id={cust.id}
+                    style={highlightedId === String(cust.id) ? HIGHLIGHT_STYLE : undefined}
+                  >
                     <td>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium">
                         {(cust.customer_id && cust.customer_id.trim()) || cust.id || cust._id || '—'}

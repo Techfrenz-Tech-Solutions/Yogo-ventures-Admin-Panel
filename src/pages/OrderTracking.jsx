@@ -29,12 +29,14 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ConfirmationModal, RetryBlock, Pagination, RemarksInput } from '../components/ui';
 import toast from 'react-hot-toast';
 import Api from '../utils/Api';
 import { useExcelExport } from '../hooks/useExcelExport';
 import { usePagedRows } from '../hooks/usePagedRows';
+import { useRowHighlight, HIGHLIGHT_STYLE } from '../hooks/useRowHighlight';
 import './OrderTracking.css';
 
 const Ic = ({ d, className = 'w-4 h-4' }) => (
@@ -618,6 +620,8 @@ const OrderTracking = () => {
   const [confirm,   setConfirm]   = useState(null);
   const [statusUpdating, setStatusUpdating] = useState({}); // { [orderId]: true } while a PATCH is in flight
   const [statusConfirm, setStatusConfirm] = useState(null); // { item, newStatus } while the confirmation popup is open
+  const [searchParams] = useSearchParams();
+  const highlightParam = searchParams.get('highlight');
 
   // ── Filters (moved here from the old /order-history page) ───
   const [fromDate,          setFromDate]          = useState('');
@@ -676,6 +680,17 @@ const OrderTracking = () => {
     fetchProducts();
     fetchDateTitles();
   }, [fetchItems, fetchCustomers, fetchProducts, fetchDateTitles]);
+
+  useEffect(() => {
+    if (!highlightParam) return;
+    setSearch('');
+    setFromDate('');
+    setToDate('');
+    setFilterOrderId('');
+    setFilterCustomerId('');
+    setFilterProductName('');
+    setFilterStatus('');
+  }, [highlightParam]);
 
   const getCustomerLabel = useCallback((customerId, fallbackName) => {
     const c = customers.find(c => String(c.id) === String(customerId));
@@ -859,7 +874,9 @@ const OrderTracking = () => {
 
   const {
     paged, page, setPage, rowsPerPage, setRowsPerPage, totalPages, total, rangeStart,
-  } = usePagedRows('/order-tracking', filtered);
+  } = usePagedRows('/order-tracking', filtered, { jumpToId: highlightParam });
+
+  const highlightedId = useRowHighlight(items, loading);
 
   const totalCount = items.length;
 
@@ -996,15 +1013,22 @@ const OrderTracking = () => {
                 const orderItems = getOrderItems(item);
                 const orderStatus = item.status || 'pending';
                 const statusMeta = STATUS_META[orderStatus] || STATUS_META.pending;
+                const isHighlighted = highlightedId === String(item.id);
+                const rowBgClass = isHighlighted ? 'bg-yellow-100' : statusMeta.row;
                 const isUpdatingStatus = !!statusUpdating[item.id];
                 return (
-                  <tr key={item.id} className={statusMeta.row}>
-                    <td className={`${stickyClass('sno')} ${statusMeta.row} text-primary-400 text-xs font-mono`}>{rangeStart + idx}</td>
-                    <td className={`${stickyClass('orderId')} ${statusMeta.row}`}>
+                  <tr
+                    key={item.id}
+                    data-row-id={item.id}
+                    className={rowBgClass}
+                    style={isHighlighted ? HIGHLIGHT_STYLE : undefined}
+                  >
+                    <td className={`${stickyClass('sno')} ${rowBgClass} text-primary-400 text-xs font-mono`}>{rangeStart + idx}</td>
+                    <td className={`${stickyClass('orderId')} ${rowBgClass}`}>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-primary-50 text-primary-600 text-xs font-mono font-medium whitespace-nowrap">{item.order_id}</span>
                     </td>
-                    <td className={`${stickyClass('customerId')} ${statusMeta.row} text-primary-700 text-sm`}>{customerLabel}</td>
-                    <td className={`${stickyClass('productName')} ${statusMeta.row} font-medium text-primary-700`}>
+                    <td className={`${stickyClass('customerId')} ${rowBgClass} text-primary-700 text-sm`}>{customerLabel}</td>
+                    <td className={`${stickyClass('productName')} ${rowBgClass} font-medium text-primary-700`}>
                       <div className="space-y-1">
                         {orderItems.map((it, i) => (
                           <div key={it.product_id ?? i}>
@@ -1013,7 +1037,7 @@ const OrderTracking = () => {
                         ))}
                       </div>
                     </td>
-                    <td className={`${stickyClass('quantity')} ${statusMeta.row}`}>
+                    <td className={`${stickyClass('quantity')} ${rowBgClass}`}>
                       <div className="space-y-1">
                         {orderItems.map((it, i) => (
                           <div key={it.product_id ?? i}>
@@ -1022,8 +1046,8 @@ const OrderTracking = () => {
                         ))}
                       </div>
                     </td>
-                    <td className={`${stickyClass('orderValue')} ${statusMeta.row} text-primary-700 text-sm font-medium whitespace-nowrap`}>{fmtINR(item.order_value)}</td>
-                    <td className={`${stickyClass('status')} ${statusMeta.row}`}>
+                    <td className={`${stickyClass('orderValue')} ${rowBgClass} text-primary-700 text-sm font-medium whitespace-nowrap`}>{fmtINR(item.order_value)}</td>
+                    <td className={`${stickyClass('status')} ${rowBgClass}`}>
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-semibold whitespace-nowrap ${statusMeta.badge}`}>
                         {statusMeta.label}
                       </span>
